@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acquisto Completato - Corso Web Development</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f0f;
+            color: #fff;
+            line-height: 1.6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .success-container {
+            background: #1a1a1a;
+            padding: 60px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .success-container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.1) 0%, transparent 70%);
+            animation: pulse 3s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 0.3; }
+        }
+        
+        .success-icon {
+            font-size: 80px;
+            margin-bottom: 30px;
+            animation: checkmark 0.8s ease-out;
+            position: relative;
+            z-index: 1;
+        }
+        
+        @keyframes checkmark {
+            0% { transform: scale(0) rotate(-180deg); }
+            50% { transform: scale(1.2) rotate(10deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+        
+        h1 {
+            font-size: 36px;
+            margin-bottom: 20px;
+            color: #10b981;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .message {
+            font-size: 18px;
+            opacity: 0.9;
+            margin-bottom: 40px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .email-info {
+            background: #252525;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 30px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .email-info strong {
+            color: #667eea;
+        }
+        
+        .next-steps {
+            background: #252525;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: left;
+            margin-bottom: 30px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .next-steps h2 {
+            font-size: 24px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .step {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 15px;
+        }
+        
+        .step-number {
+            background: #667eea;
+            color: white;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+        
+        .cta-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .cta-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+        
+        .support-info {
+            margin-top: 40px;
+            font-size: 14px;
+            opacity: 0.7;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+        
+        .loading.show {
+            display: block;
+        }
+        
+        @media (max-width: 600px) {
+            .success-container {
+                padding: 40px 20px;
+            }
+            
+            h1 {
+                font-size: 28px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="success-container">
+        <div class="success-icon">✅</div>
+        <h1>Acquisto Completato!</h1>
+        <p class="message">
+            Grazie per aver acquistato il Corso Completo di Web Development!
+        </p>
+        
+        <div class="email-info">
+            <p>📧 Abbiamo inviato i dettagli di accesso a:</p>
+            <p><strong id="user-email">la tua email</strong></p>
+        </div>
+        
+        <div class="next-steps">
+            <h2>Prossimi Passi</h2>
+            <div class="step">
+                <div class="step-number">1</div>
+                <div>
+                    <strong>Controlla la tua email</strong><br>
+                    Riceverai entro pochi minuti le credenziali di accesso al corso
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">2</div>
+                <div>
+                    <strong>Accedi alla piattaforma</strong><br>
+                    Usa il link nell'email per accedere all'area riservata
+                </div>
+            </div>
+            <div class="step">
+                <div class="step-number">3</div>
+                <div>
+                    <strong>Inizia a imparare!</strong><br>
+                    Segui il percorso guidato e costruisci i tuoi primi progetti
+                </div>
+            </div>
+        </div>
+        
+        <a href="/" class="cta-button">Torna alla Home</a>
+        
+        <div class="support-info">
+            <p>Hai bisogno di aiuto? Contattaci a support@tuosito.com</p>
+            <p>ID Transazione: <span id="payment-id">...</span></p>
+        </div>
+        
+        <div class="loading" id="loading">
+            <p>Caricamento dettagli...</p>
+        </div>
+    </div>
+    
+    <script>
+        // Ottieni i parametri dall'URL
+        const urlParams = new URLSearchParams(window.location.search);
+        const paymentId = urlParams.get('payment');
+        
+        if (paymentId) {
+            document.getElementById('payment-id').textContent = paymentId;
+        }
+        
+        // Opzionale: Recupera i dettagli del pagamento dal backend
+        async function getPaymentDetails() {
+            if (!paymentId) return;
+            
+            try {
+                const response = await fetch(`http://localhost:3000/api/verify-payment`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        paymentIntentId: paymentId
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.email) {
+                    document.getElementById('user-email').textContent = data.email;
+                }
+                
+            } catch (error) {
+                console.error('Errore nel recupero dei dettagli:', error);
+            }
+        }
+        
+        // Carica i dettagli al caricamento della pagina
+        getPaymentDetails();
+        
+        // Effetto confetti (opzionale)
+        function createConfetti() {
+            const colors = ['#667eea', '#764ba2', '#10b981', '#f59e0b'];
+            const confettiCount = 50;
+            
+            for (let i = 0; i < confettiCount; i++) {
+                const confetti = document.createElement('div');
+                confetti.style.cssText = `
+                    position: fixed;
+                    width: 10px;
+                    height: 10px;
+                    background-color: ${colors[Math.floor(Math.random() * colors.length)]};
+                    left: ${Math.random() * 100}%;
+                    top: -20px;
+                    opacity: ${Math.random()};
+                    transform: rotate(${Math.random() * 360}deg);
+                    animation: fall ${Math.random() * 3 + 2}s linear;
+                `;
+                document.body.appendChild(confetti);
+                
+                setTimeout(() => confetti.remove(), 5000);
+            }
+        }
+        
+        // Stile per l'animazione dei confetti
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fall {
+                to {
+                    top: 100vh;
+                    transform: rotate(${Math.random() * 360 + 360}deg);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Lancia i confetti dopo mezzo secondo
+        setTimeout(createConfetti, 500);
+    </script>
+</body>
+</html>
