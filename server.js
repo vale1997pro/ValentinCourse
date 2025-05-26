@@ -198,8 +198,8 @@ app.post('/api/stripe-webhook', async (req, res) => {
     res.json({received: true});
 });
 
-// Catch-all per API routes non trovate
-app.use('/api/*', (req, res) => {
+// Catch-all per API routes non trovate (usando regex invece di wildcard)
+app.use(/^\/api\/.*/, (req, res) => {
     res.status(404).json({ 
         error: 'API endpoint not found',
         path: req.path 
