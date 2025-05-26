@@ -7,35 +7,67 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// Middleware
+// Middleware per JSON (tranne per webhook)
+app.use('/api/stripe-webhook', express.raw({type: 'application/json'}));
 app.use(express.json());
+
+// CORS configuration
 app.use(cors({
     origin: [
         process.env.FRONTEND_URL || 'http://localhost:8000',
-        'https://www.valentinprocida.it'  // ✅ Corretto (solo dominio)
-    ]
+        'https://www.valentinprocida.it',
+        'http://localhost:3000', // Per sviluppo locale
+        'http://127.0.0.1:8000'
+    ],
+    credentials: true
 }));
 
 // Test endpoint
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'Server is running!', timestamp: new Date() });
+    res.json({ 
+        status: 'Server is running!', 
+        timestamp: new Date(),
+        env: process.env.NODE_ENV || 'development'
+    });
+});
+
+// Endpoint per ottenere la chiave pubblica
+app.get('/api/config', (req, res) => {
+    console.log('Config requested');
+    
+    if (!process.env.STRIPE_PUBLISHABLE_KEY) {
+        return res.status(500).json({ 
+            error: 'Stripe publishable key not configured' 
+        });
+    }
+    
+    res.json({
+        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+    });
 });
 
 // Endpoint per creare un Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
     try {
-        const { email, name } = req.body;
+        console.log('Creating payment intent for:', req.body);
         
-        // Validazione base
+        const { email, name, phone } = req.body;
+        
+        // Validazione
         if (!email || !name) {
             return res.status(400).json({ 
                 error: 'Email e nome sono richiesti' 
             });
         }
         
+        // Controlla che Stripe sia configurato
+        if (!process.env.STRIPE_SECRET_KEY) {
+            throw new Error('Stripe secret key not configured');
+        }
+        
         // Crea il Payment Intent
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: 100, // €49.00 in centesimi
+            amount: 100, // €1.00 in centesimi
             currency: 'eur',
             automatic_payment_methods: {
                 enabled: true,
@@ -43,13 +75,13 @@ app.post('/api/create-payment-intent', async (req, res) => {
             metadata: {
                 email: email,
                 name: name,
-                product: 'corso-web-development',
-                productId: 'corso-001'
+                phone: phone || '',
+                product: 'vfx-consultation',
+                productId: 'cons-001'
             },
-            description: 'Corso Completo Web Development'
+            description: 'VFX Career Consultation with Valentin Procida'
         });
         
-        // Opzionale: Salva l'ordine nel database qui
         console.log('Payment Intent creato:', paymentIntent.id);
         
         res.json({
@@ -66,54 +98,66 @@ app.post('/api/create-payment-intent', async (req, res) => {
     }
 });
 
-// Endpoint per verificare il pagamento (opzionale ma consigliato)
+// Endpoint per verificare il pagamento
 app.post('/api/verify-payment', async (req, res) => {
     try {
         const { paymentIntentId } = req.body;
         
+        if (!paymentIntentId) {
+            return res.status(400).json({ 
+                error: 'Payment Intent ID richiesto' 
+            });
+        }
+        
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
         
         if (paymentIntent.status === 'succeeded') {
-            // Pagamento confermato!
-            // Qui puoi:
-            // 1. Inviare email con il corso
-            // 2. Creare accesso utente
-            // 3. Salvare nel database
-            
             console.log('Pagamento verificato per:', paymentIntent.metadata.email);
             
             res.json({
                 success: true,
                 email: paymentIntent.metadata.email,
+                name: paymentIntent.metadata.name,
                 amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                paymentId: paymentIntent.id,
                 receipt_url: paymentIntent.charges.data[0]?.receipt_url
             });
         } else {
             res.json({
                 success: false,
-                status: paymentIntent.status
+                status: paymentIntent.status,
+                paymentId: paymentIntent.id
             });
         }
         
     } catch (error) {
         console.error('Errore verifica pagamento:', error);
         res.status(500).json({ 
-            error: 'Errore nella verifica del pagamento' 
+            error: 'Errore nella verifica del pagamento',
+            details: error.message
         });
     }
 });
 
-// Webhook Stripe (per notifiche automatiche)
-app.post('/api/stripe-webhook', express.raw({type: 'application/json'}), async (req, res) => {
+// Webhook Stripe
+app.post('/api/stripe-webhook', async (req, res) => {
     const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET; // Aggiungi questo al .env
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
     
     let event;
     
     try {
+        if (!endpointSecret) {
+            console.log('Webhook ricevuto ma endpoint secret non configurato');
+            return res.status(200).json({received: true});
+        }
+        
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+        console.log('Webhook evento ricevuto:', event.type);
+        
     } catch (err) {
-        console.error('Webhook signature verification failed:', err.message);
+        console.error('Webhook signature verification fallita:', err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
     
@@ -121,15 +165,30 @@ app.post('/api/stripe-webhook', express.raw({type: 'application/json'}), async (
     switch (event.type) {
         case 'payment_intent.succeeded':
             const paymentIntent = event.data.object;
-            console.log('💰 Pagamento ricevuto!', paymentIntent.metadata.email);
+            console.log('💰 Pagamento completato!', {
+                id: paymentIntent.id,
+                email: paymentIntent.metadata.email,
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency
+            });
             
-            // Invia email automatica, attiva accesso, etc.
-            // await sendCourseEmail(paymentIntent.metadata.email);
+            // Qui puoi:
+            // - Inviare email di conferma
+            // - Salvare nel database
+            // - Attivare accesso al servizio
             
             break;
             
         case 'payment_intent.payment_failed':
-            console.log('❌ Pagamento fallito:', event.data.object.id);
+            const failedPayment = event.data.object;
+            console.log('❌ Pagamento fallito:', {
+                id: failedPayment.id,
+                error: failedPayment.last_payment_error?.message
+            });
+            break;
+            
+        case 'payment_method.attached':
+            console.log('💳 Metodo di pagamento allegato');
             break;
             
         default:
@@ -139,10 +198,11 @@ app.post('/api/stripe-webhook', express.raw({type: 'application/json'}), async (
     res.json({received: true});
 });
 
-// Endpoint per ottenere la chiave pubblica (utile per il frontend)
-app.get('/api/config', (req, res) => {
-    res.json({
-        publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+// Catch-all per API routes non trovate
+app.use('/api/*', (req, res) => {
+    res.status(404).json({ 
+        error: 'API endpoint not found',
+        path: req.path 
     });
 });
 
@@ -150,10 +210,18 @@ app.get('/api/config', (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🌐 Server ready to accept connections`);
+    console.log(`🔑 Stripe configured: ${!!process.env.STRIPE_SECRET_KEY}`);
+    console.log(`🔑 Stripe publishable key configured: ${!!process.env.STRIPE_PUBLISHABLE_KEY}`);
+    console.log(`🪝 Webhook secret configured: ${!!process.env.STRIPE_WEBHOOK_SECRET}`);
+    console.log(`🌐 Server ready at: http://localhost:${PORT}`);
 });
 
 // Gestione errori non catturati
 process.on('unhandledRejection', (err) => {
     console.error('Unhandled Promise Rejection:', err);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+    process.exit(1);
 });
