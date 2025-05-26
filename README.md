@@ -1,2 +1,0 @@
-# ValentinCourse
-ValentinCourse
