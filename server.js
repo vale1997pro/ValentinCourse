@@ -1,12 +1,115 @@
-// server.js - Sistema completo con codici sconto automatici e email
+// server.js - Sistema completo con codici sconto automatici, email e Google Sheets
 require('dotenv').config();
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const cors = require('cors');
 const nodemailer = require('nodemailer');
+const { google } = require('googleapis');
 
 const app = express();
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3000;
+
+// ===== GOOGLE SHEETS SETUP =====
+let sheets;
+let sheetsAuth;
+
+async function initGoogleSheets() {
+    try {
+        let credentials;
+        
+        if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+            // Produzione: usa la variabile d'ambiente
+            console.log('📊 Usando credenziali Google da variabile d\'ambiente');
+            credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+        } else if (process.env.NODE_ENV === 'development') {
+            // Sviluppo: carica dal file locale (solo in dev)
+            try {
+                console.log('📊 Usando credenziali Google da file locale');
+                credentials = require('./google-service-account.json');
+            } catch (error) {
+                console.warn('⚠️ File google-service-account.json non trovato. Configurare GOOGLE_SERVICE_ACCOUNT_KEY.');
+                return;
+            }
+        } else {
+            console.warn('⚠️ Credenziali Google non configurate');
+            return;
+        }
+
+        sheetsAuth = new google.auth.GoogleAuth({
+            credentials: credentials,
+            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+        });
+
+        sheets = google.sheets({ version: 'v4', auth: sheetsAuth });
+        console.log('📊 Google Sheets configurato correttamente');
+        
+        // Test connessione
+        if (process.env.GOOGLE_SPREADSHEET_ID) {
+            await testGoogleSheetsConnection();
+        }
+        
+    } catch (error) {
+        console.error('❌ Errore configurazione Google Sheets:', error.message);
+        sheets = null;
+    }
+}
+
+async function testGoogleSheetsConnection() {
+    try {
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId: process.env.GOOGLE_SPREADSHEET_ID,
+            range: 'Prenotazioni!A1:K1'
+        });
+        console.log('✅ Test Google Sheets OK - Headers trovati:', response.data.values ? response.data.values[0] : 'Nessun header');
+    } catch (error) {
+        console.warn('⚠️ Test Google Sheets fallito:', error.message);
+    }
+}
+
+// ===== FUNZIONI GOOGLE SHEETS =====
+async function saveBookingToGoogleSheets(bookingData) {
+    if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
+        console.warn('⚠️ Google Sheets non configurato - saltando salvataggio');
+        return;
+    }
+
+    try {
+        const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+        
+        const date = new Date(bookingData.appointmentDate || new Date());
+        const formattedDate = date.toLocaleDateString('it-IT');
+        const finalAmount = (bookingData.amount / 100).toFixed(2);
+        const discountText = bookingData.discount ? 
+            `${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})` : 
+            'Nessuno';
+        
+        const values = [[
+            new Date().toLocaleString('it-IT'), // Timestamp prenotazione
+            bookingData.customerName || bookingData.name,
+            bookingData.customerEmail || bookingData.email,
+            bookingData.customerPhone || bookingData.phone,
+            bookingData.company || '',
+            formattedDate,
+            bookingData.appointmentTime || 'Non specificato',
+            `€${finalAmount}`,
+            discountText,
+            bookingData.paymentIntent || bookingData.paymentId,
+            'Confermata'
+        ]];
+        
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Prenotazioni!A:K',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values }
+        });
+        
+        console.log('✅ Prenotazione salvata in Google Sheets:', bookingData.customerEmail || bookingData.email);
+        
+    } catch (error) {
+        console.error('❌ Errore salvataggio Google Sheets:', error.message);
+    }
+}
 
 // ===== CLASSE GENERATORE CODICI SCONTO =====
 class DiscountCodeGenerator {
@@ -130,7 +233,7 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransport(emailConfig);
+    transporter = nodemailer.createTransporter(emailConfig);
     console.log('📧 Email transporter configurato');
 } else {
     console.warn('⚠️ Configurazione email mancante - le email non saranno inviate');
@@ -219,6 +322,207 @@ function createDiscountEmailTemplate(name, discountCode, discountAmount) {
                 <a href="https://vimeo.com/valentinprocida" style="color: #ff4136; text-decoration: none; margin: 0 10px;">Vimeo</a>
                 <a href="https://www.valentinprocida.it" style="color: #ff4136; text-decoration: none; margin: 0 10px;">Website</a>
             </div>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+function createBookingConfirmationTemplate(bookingData) {
+    const date = new Date(bookingData.appointmentDate || new Date());
+    const formattedDate = date.toLocaleDateString('it-IT', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+    
+    const finalAmount = (bookingData.amount / 100).toFixed(2);
+    
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Confirmation - Valentin Procida</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3ede6;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: white;">
+        <!-- Header -->
+        <div style="background-color: #d73232; padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 24px;">✅ Prenotazione Confermata!</h1>
+        </div>
+        
+        <!-- Main Content -->
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #0a0a0a; margin: 0 0 20px 0;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
+            
+            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+                La tua consulenza VFX personalizzata è stata confermata con successo. Ecco i dettagli:
+            </p>
+            
+            <!-- Booking Details -->
+            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #d73232; margin: 0 0 20px 0;">📅 Dettagli Appuntamento</h3>
+                <p><strong>Data:</strong> ${formattedDate}</p>
+                <p><strong>Orario:</strong> ${bookingData.appointmentTime || 'Da confermare'}</p>
+                <p><strong>Durata:</strong> 90 minuti</p>
+                <p><strong>Modalità:</strong> Video chiamata (link sarà inviato 24h prima)</p>
+            </div>
+            
+            <!-- Payment Details -->
+            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #d73232; margin: 0 0 20px 0;">💳 Riepilogo Pagamento</h3>
+                <p><strong>Importo pagato:</strong> €${finalAmount}</p>
+                ${bookingData.discount ? `<p><strong>Sconto applicato:</strong> ${bookingData.discount.code}</p>` : ''}
+                <p><strong>ID Transazione:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
+            </div>
+            
+            <!-- What to Expect -->
+            <div style="background-color: #e8f5e8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #065f46; margin: 0 0 20px 0;">🎯 Cosa Aspettarsi</h3>
+                <ul style="color: #047857; line-height: 1.8;">
+                    <li>Analisi completa del tuo portfolio VFX</li>
+                    <li>Roadmap personalizzata per la tua carriera</li>
+                    <li>Strategie concrete per entrare nell'industria</li>
+                    <li>Template CV e email ottimizzati</li>
+                    <li>Risorse e contatti utili</li>
+                    <li>Follow-up con materiali aggiuntivi</li>
+                </ul>
+            </div>
+            
+            <!-- Preparation -->
+            <div style="background-color: #fff3cd; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
+                <h3 style="color: #856404; margin: 0 0 20px 0;">📋 Preparazione per la Sessione</h3>
+                <p style="color: #856404; margin-bottom: 15px;">Per massimizzare il valore della nostra consulenza, ti consiglio di:</p>
+                <ul style="color: #856404; line-height: 1.8;">
+                    <li>Preparare il tuo portfolio/reel più recente</li>
+                    <li>Elencare le tue domande specifiche</li>
+                    <li>Pensare ai tuoi obiettivi di carriera</li>
+                    <li>Avere carta e penna per prendere note</li>
+                </ul>
+            </div>
+            
+            <div style="text-align: center; margin: 30px 0;">
+                <p style="color: #666;">Ti invierò il link per la video chiamata 24 ore prima dell'appuntamento.</p>
+                <p style="color: #666;">Se hai domande, rispondi pure a questa email!</p>
+            </div>
+            
+            <!-- Guarantee -->
+            <div style="background-color: #f3ede6; padding: 25px; border-radius: 8px; text-align: center;">
+                <p style="margin: 0; color: #d73232; font-weight: bold; font-size: 18px;">
+                    🛡️ Garanzia 100% Soddisfazione
+                </p>
+                <p style="margin: 10px 0 0 0; color: #666;">
+                    Se non sei completamente soddisfatto, ti rimborserò entro 48 ore.
+                </p>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
+            <p style="margin: 0;">© 2025 Valentin Procida - VFX Consulting</p>
+            <p style="margin: 5px 0 0 0;">Website: <a href="https://www.valentinprocida.it" style="color: #d73232;">www.valentinprocida.it</a></p>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+function createAdminNotificationTemplate(bookingData) {
+    const date = new Date(bookingData.appointmentDate || new Date());
+    const formattedDate = date.toLocaleDateString('it-IT', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+    
+    const finalAmount = (bookingData.amount / 100).toFixed(2);
+    
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Booking - Admin Notification</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f8f9fa;">
+    <div style="max-width: 600px; margin: 0 auto; background-color: white;">
+        <!-- Header -->
+        <div style="background-color: #2c3e50; padding: 30px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 24px;">🎯 Nuova Prenotazione Ricevuta</h1>
+        </div>
+        
+        <!-- Main Content -->
+        <div style="padding: 40px 30px;">
+            <h2 style="color: #0a0a0a; margin: 0 0 20px 0;">Ciao Valentin!</h2>
+            
+            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
+                Hai ricevuto una nuova prenotazione per una consulenza VFX. Ecco i dettagli:
+            </p>
+            
+            <!-- Customer Details -->
+            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #d73232; margin: 0 0 20px 0;">👤 Informazioni Cliente</h3>
+                <p><strong>Nome:</strong> ${bookingData.customerName || bookingData.name}</p>
+                <p><strong>Email:</strong> <a href="mailto:${bookingData.customerEmail || bookingData.email}">${bookingData.customerEmail || bookingData.email}</a></p>
+                <p><strong>Telefono:</strong> <a href="tel:${bookingData.customerPhone || bookingData.phone}">${bookingData.customerPhone || bookingData.phone}</a></p>
+                ${bookingData.company ? `<p><strong>Azienda:</strong> ${bookingData.company}</p>` : ''}
+            </div>
+            
+            <!-- Appointment Details -->
+            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #d73232; margin: 0 0 20px 0;">📅 Dettagli Appuntamento</h3>
+                <p><strong>Data:</strong> ${formattedDate}</p>
+                <p><strong>Orario:</strong> ${bookingData.appointmentTime || 'Non specificato'}</p>
+                <p><strong>Durata:</strong> 90 minuti</p>
+            </div>
+            
+            <!-- Payment Details -->
+            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #d73232; margin: 0 0 20px 0;">💰 Dettagli Pagamento</h3>
+                <p><strong>Importo:</strong> €${finalAmount}</p>
+                ${bookingData.discount ? `<p><strong>Sconto:</strong> ${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})</p>` : ''}
+                <p><strong>ID Stripe:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
+                <p><strong>Data pagamento:</strong> ${new Date().toLocaleString('it-IT')}</p>
+            </div>
+            
+            <!-- Action Items -->
+            <div style="background-color: #e8f5e8; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #10b981;">
+                <h3 style="color: #065f46; margin: 0 0 20px 0;">✅ Azioni da Fare</h3>
+                <ul style="color: #047857; line-height: 1.8;">
+                    <li>Aggiungi l'appuntamento al tuo calendario</li>
+                    <li>Prepara il link della video chiamata</li>
+                    <li>Invia promemoria 24h prima</li>
+                    <li>Controlla il portfolio del cliente (se fornito)</li>
+                    <li>Prepara materiali personalizzati</li>
+                </ul>
+            </div>
+            
+            <!-- Quick Actions -->
+            <div style="text-align: center; margin: 40px 0;">
+                ${process.env.GOOGLE_SPREADSHEET_ID ? `
+                <a href="https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}" 
+                   style="background-color: #d73232; color: white; padding: 15px 30px; text-decoration: none; 
+                          border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; margin: 10px;">
+                    📊 Visualizza nel Google Sheets
+                </a>
+                <br>` : ''}
+                <a href="mailto:${bookingData.customerEmail || bookingData.email}" 
+                   style="background-color: #28a745; color: white; padding: 15px 30px; text-decoration: none; 
+                          border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; margin: 10px;">
+                    📧 Rispondi al Cliente
+                </a>
+            </div>
+        </div>
+        
+        <!-- Footer -->
+        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
+            <p style="margin: 0;">Sistema di Prenotazione VFX Consulting</p>
+            <p style="margin: 5px 0 0 0;">Powered by Valentin Procida</p>
         </div>
     </div>
 </body>
@@ -336,6 +640,7 @@ app.get('/api/health', (req, res) => {
         timestamp: new Date(),
         totalDiscountCodes: Object.keys(discountCodes).length,
         emailConfigured: !!transporter,
+        googleSheetsConfigured: !!sheets,
         env: process.env.NODE_ENV || 'development'
     });
 });
@@ -345,6 +650,66 @@ app.get('/api/config', (req, res) => {
         return res.status(500).json({ error: 'Stripe publishable key not configured' });
     }
     res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY });
+});
+
+// ===== TEST GOOGLE SHEETS =====
+app.get('/api/test-sheets', async (req, res) => {
+    try {
+        if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Google Sheets non configurato',
+                configured: !!sheets,
+                spreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID
+            });
+        }
+
+        const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+        
+        // Test lettura
+        const readResponse = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Prenotazioni!A1:K1'
+        });
+        
+        // Test scrittura
+        const testValues = [[
+            new Date().toLocaleString('it-IT'),
+            'Test Cliente',
+            'test@email.com',
+            '+39 123 456 7890',
+            'Test Company',
+            new Date().toLocaleDateString('it-IT'),
+            '14:00',
+            '€150.00',
+            'Nessuno',
+            'test_payment_id',
+            'Test'
+        ]];
+        
+        await sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'Prenotazioni!A:K',
+            valueInputOption: 'USER_ENTERED',
+            resource: { values: testValues }
+        });
+        
+        res.json({
+            success: true,
+            message: 'Google Sheets connection successful!',
+            headers: readResponse.data.values ? readResponse.data.values[0] : [],
+            testRowAdded: true,
+            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
+        });
+        
+    } catch (error) {
+        console.error('Google Sheets test error:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            details: error.toString()
+        });
+    }
 });
 
 // ===== ENDPOINTS EMAIL E CODICI SCONTO =====
@@ -561,7 +926,7 @@ app.post('/api/generate-campaign', async (req, res) => {
 // Crea Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
     try {
-        const { email, name, phone, discountCode } = req.body;
+        const { email, name, phone, company, appointmentDate, appointmentTime, discountCode } = req.body;
         if (!email || !name) return res.status(400).json({ error: 'Email e nome sono richiesti' });
         if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe secret key not configured');
         
@@ -584,21 +949,16 @@ app.post('/api/create-payment-intent', async (req, res) => {
         const paymentIntent = await stripe.paymentIntents.create({
             amount: finalAmount, currency: 'eur', automatic_payment_methods: { enabled: true },
             metadata: {
-                email, name, phone: phone || '', product: 'vfx-consultation', productId: 'cons-001',
+                email, name, phone: phone || '', company: company || '',
+                product: 'vfx-consultation', productId: 'cons-001',
+                appointmentDate: appointmentDate || '',
+                appointmentTime: appointmentTime || '',
                 originalAmount: originalAmount.toString(), discountCode: discountCode || '',
                 discountAmount: discountInfo ? discountInfo.discountAmount.toString() : '0',
                 finalAmount: finalAmount.toString()
             },
             description: 'VFX Career Consultation with Valentin Procida'
         });
-        
-        if (discountCode && discountInfo) {
-            const discount = discountCodes[discountCode.toUpperCase()];
-            if (discount) {
-                discount.usedCount++;
-                console.log(`Codice ${discountCode} utilizzato. Nuovo conteggio: ${discount.usedCount}`);
-            }
-        }
         
         res.json({
             clientSecret: paymentIntent.client_secret,
@@ -635,6 +995,178 @@ app.post('/api/verify-payment', async (req, res) => {
         console.error('Errore verifica pagamento:', error);
         res.status(500).json({ error: 'Errore nella verifica del pagamento', details: error.message });
     }
+});
+
+// Conferma prenotazione (invia email e salva su Google Sheets)
+app.post('/api/booking-confirmation', async (req, res) => {
+    try {
+        const bookingData = req.body;
+        
+        // Salva su Google Sheets
+        await saveBookingToGoogleSheets(bookingData);
+        
+        // Invia email di conferma al cliente
+        if (transporter) {
+            const customerMailOptions = {
+                from: {
+                    name: 'Valentin Procida',
+                    address: process.env.EMAIL_USER
+                },
+                to: bookingData.customerEmail || bookingData.email,
+                subject: '✅ Consulenza VFX Confermata - Valentin Procida',
+                html: createBookingConfirmationTemplate(bookingData)
+            };
+            
+            await transporter.sendMail(customerMailOptions);
+            console.log('📧 Email di conferma inviata al cliente');
+        }
+        
+        // Invia notifica admin
+        if (transporter && process.env.ADMIN_EMAIL) {
+            const adminMailOptions = {
+                from: {
+                    name: 'Sistema Prenotazioni',
+                    address: process.env.EMAIL_USER
+                },
+                to: process.env.ADMIN_EMAIL,
+                subject: `🎯 Nuova Prenotazione: ${bookingData.customerName || bookingData.name} - ${bookingData.appointmentDate || 'Data da confermare'}`,
+                html: createAdminNotificationTemplate(bookingData)
+            };
+            
+            await transporter.sendMail(adminMailOptions);
+            console.log('📧 Notifica admin inviata');
+        }
+        
+        res.json({ success: true });
+        
+    } catch (error) {
+        console.error('Errore in booking confirmation:', error);
+        res.status(500).json({ error: 'Failed to process booking confirmation' });
+    }
+});
+
+// ===== WEBHOOK STRIPE =====
+app.post('/api/stripe-webhook', async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    
+    let event;
+    
+    try {
+        if (!endpointSecret) {
+            console.log('Webhook ricevuto ma endpoint secret non configurato');
+            return res.status(200).json({received: true});
+        }
+        
+        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+        console.log('Webhook evento ricevuto:', event.type);
+        
+    } catch (err) {
+        console.error('Webhook signature verification fallita:', err.message);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+    
+    switch (event.type) {
+        case 'payment_intent.succeeded':
+            const paymentIntent = event.data.object;
+            console.log('💰 Pagamento completato!', {
+                id: paymentIntent.id,
+                email: paymentIntent.metadata.email,
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                discountCode: paymentIntent.metadata.discountCode || 'Nessuno',
+                discountAmount: paymentIntent.metadata.discountAmount || '0',
+                originalAmount: paymentIntent.metadata.originalAmount || paymentIntent.amount
+            });
+            
+            // Marca il codice sconto come usato
+            if (paymentIntent.metadata.discountCode) {
+                const discount = discountCodes[paymentIntent.metadata.discountCode.toUpperCase()];
+                if (discount) {
+                    discount.usedCount++;
+                    console.log(`Codice ${paymentIntent.metadata.discountCode} utilizzato. Nuovo conteggio: ${discount.usedCount}`);
+                }
+                
+                const savings = parseInt(paymentIntent.metadata.discountAmount) / 100;
+                console.log(`🎉 Cliente ha risparmiato €${savings.toFixed(2)} con il codice ${paymentIntent.metadata.discountCode}`);
+            }
+            
+            // Salva automaticamente su Google Sheets e invia email
+            const bookingData = {
+                customerName: paymentIntent.metadata.name,
+                customerEmail: paymentIntent.metadata.email,
+                customerPhone: paymentIntent.metadata.phone,
+                company: paymentIntent.metadata.company,
+                appointmentDate: paymentIntent.metadata.appointmentDate,
+                appointmentTime: paymentIntent.metadata.appointmentTime,
+                amount: paymentIntent.amount,
+                paymentIntent: paymentIntent.id,
+                discount: paymentIntent.metadata.discountCode ? {
+                    code: paymentIntent.metadata.discountCode,
+                    discountAmount: parseInt(paymentIntent.metadata.discountAmount)
+                } : null,
+                timestamp: new Date().toISOString()
+            };
+            
+            // Salva automaticamente
+            await saveBookingToGoogleSheets(bookingData);
+            
+            // Invia email automaticamente
+            if (transporter) {
+                try {
+                    // Email cliente
+                    const customerMailOptions = {
+                        from: {
+                            name: 'Valentin Procida',
+                            address: process.env.EMAIL_USER
+                        },
+                        to: bookingData.customerEmail,
+                        subject: '✅ Consulenza VFX Confermata - Valentin Procida',
+                        html: createBookingConfirmationTemplate(bookingData)
+                    };
+                    
+                    await transporter.sendMail(customerMailOptions);
+                    console.log('📧 Email di conferma automatica inviata al cliente');
+                    
+                    // Email admin
+                    if (process.env.ADMIN_EMAIL) {
+                        const adminMailOptions = {
+                            from: {
+                                name: 'Sistema Prenotazioni',
+                                address: process.env.EMAIL_USER
+                            },
+                            to: process.env.ADMIN_EMAIL,
+                            subject: `🎯 Nuova Prenotazione: ${bookingData.customerName} - ${bookingData.appointmentDate || 'Data da confermare'}`,
+                            html: createAdminNotificationTemplate(bookingData)
+                        };
+                        
+                        await transporter.sendMail(adminMailOptions);
+                        console.log('📧 Notifica admin automatica inviata');
+                    }
+                } catch (emailError) {
+                    console.error('Errore invio email automatica:', emailError);
+                }
+            }
+            break;
+            
+        case 'payment_intent.payment_failed':
+            const failedPayment = event.data.object;
+            console.log('❌ Pagamento fallito:', {
+                id: failedPayment.id,
+                error: failedPayment.last_payment_error?.message,
+                discountCode: failedPayment.metadata.discountCode || 'Nessuno'
+            });
+            break;
+            
+        case 'payment_method.attached':
+            console.log('💳 Metodo di pagamento allegato');
+            break;
+            
+        default:
+            console.log(`Evento non gestito: ${event.type}`);
+    }
+    
+    res.json({received: true});
 });
 
 // ===== ENDPOINTS GESTIONE CODICI =====
@@ -759,66 +1291,6 @@ app.post('/api/cleanup-expired-codes', (req, res) => {
     }
 });
 
-// ===== WEBHOOK STRIPE =====
-app.post('/api/stripe-webhook', async (req, res) => {
-    const sig = req.headers['stripe-signature'];
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
-    let event;
-    
-    try {
-        if (!endpointSecret) {
-            console.log('Webhook ricevuto ma endpoint secret non configurato');
-            return res.status(200).json({received: true});
-        }
-        
-        event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-        console.log('Webhook evento ricevuto:', event.type);
-        
-    } catch (err) {
-        console.error('Webhook signature verification fallita:', err.message);
-        return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-    
-    switch (event.type) {
-        case 'payment_intent.succeeded':
-            const paymentIntent = event.data.object;
-            console.log('💰 Pagamento completato!', {
-                id: paymentIntent.id,
-                email: paymentIntent.metadata.email,
-                amount: paymentIntent.amount,
-                currency: paymentIntent.currency,
-                discountCode: paymentIntent.metadata.discountCode || 'Nessuno',
-                discountAmount: paymentIntent.metadata.discountAmount || '0',
-                originalAmount: paymentIntent.metadata.originalAmount || paymentIntent.amount
-            });
-            
-            if (paymentIntent.metadata.discountCode) {
-                const savings = parseInt(paymentIntent.metadata.discountAmount) / 100;
-                console.log(`🎉 Cliente ha risparmiato €${savings.toFixed(2)} con il codice ${paymentIntent.metadata.discountCode}`);
-            }
-            break;
-            
-        case 'payment_intent.payment_failed':
-            const failedPayment = event.data.object;
-            console.log('❌ Pagamento fallito:', {
-                id: failedPayment.id,
-                error: failedPayment.last_payment_error?.message,
-                discountCode: failedPayment.metadata.discountCode || 'Nessuno'
-            });
-            break;
-            
-        case 'payment_method.attached':
-            console.log('💳 Metodo di pagamento allegato');
-            break;
-            
-        default:
-            console.log(`Evento non gestito: ${event.type}`);
-    }
-    
-    res.json({received: true});
-});
-
 // ===== ENDPOINT TEST EMAIL =====
 app.post('/api/test-email', async (req, res) => {
     try {
@@ -837,11 +1309,22 @@ app.post('/api/test-email', async (req, res) => {
                 address: process.env.EMAIL_USER
             },
             to: email,
-            subject: 'Test Email Configuration',
+            subject: '✅ Test Email Configuration - Valentin Procida',
             html: `
-                <h2>Email Test Successful!</h2>
-                <p>If you're reading this, your email configuration is working correctly.</p>
-                <p>Server time: ${new Date().toISOString()}</p>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #d73232;">🎉 Email Test Successful!</h2>
+                    <p>If you're reading this, your email configuration is working correctly.</p>
+                    <div style="background: #f8f8f8; padding: 15px; border-radius: 8px; margin: 20px 0;">
+                        <p><strong>Server Status:</strong></p>
+                        <ul>
+                            <li>✅ Email transporter: Working</li>
+                            <li>✅ Google Sheets: ${!!sheets ? 'Connected' : 'Not configured'}</li>
+                            <li>✅ Stripe: ${!!process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not configured'}</li>
+                        </ul>
+                        <p><strong>Server time:</strong> ${new Date().toISOString()}</p>
+                    </div>
+                    <p style="color: #666;">This is an automated test message from your VFX booking system.</p>
+                </div>
             `,
             text: `Email Test Successful! Server time: ${new Date().toISOString()}`
         };
@@ -865,11 +1348,13 @@ app.use(/^\/api\/.*/, (req, res) => {
         availableEndpoints: [
             'GET /api/health',
             'GET /api/config', 
+            'GET /api/test-sheets',
             'POST /api/send-discount-email',
             'POST /api/check-email-discount',
             'POST /api/validate-discount',
             'POST /api/create-payment-intent',
             'POST /api/verify-payment',
+            'POST /api/booking-confirmation',
             'GET /api/discount-stats',
             'POST /api/generate-discount-code',
             'POST /api/generate-campaign',
@@ -883,55 +1368,68 @@ app.use(/^\/api\/.*/, (req, res) => {
 });
 
 // ===== INIZIALIZZAZIONE =====
-generateInitialCodes();
+async function startServer() {
+    try {
+        // Inizializza Google Sheets
+        await initGoogleSheets();
+        
+        // Genera codici iniziali
+        generateInitialCodes();
 
-// Cleanup automatico ogni ora
-setInterval(() => {
-    let deactivatedCount = 0;
-    const now = new Date();
-    
-    Object.entries(discountCodes).forEach(([code, data]) => {
-        if (data.validUntil && now > data.validUntil && data.active) {
-            data.active = false;
-            deactivatedCount++;
+        // Test configurazione email all'avvio
+        if (transporter) {
+            transporter.verify((error, success) => {
+                if (error) {
+                    console.error('❌ Errore configurazione email:', error.message);
+                } else {
+                    console.log('📧 Server email configurato correttamente');
+                }
+            });
         }
-    });
-    
-    if (deactivatedCount > 0) {
-        console.log(`🧹 Cleanup automatico: ${deactivatedCount} codici scaduti disattivati`);
+
+        // Cleanup automatico ogni ora
+        setInterval(() => {
+            let deactivatedCount = 0;
+            const now = new Date();
+            
+            Object.entries(discountCodes).forEach(([code, data]) => {
+                if (data.validUntil && now > data.validUntil && data.active) {
+                    data.active = false;
+                    deactivatedCount++;
+                }
+            });
+            
+            if (deactivatedCount > 0) {
+                console.log(`🧹 Cleanup automatico: ${deactivatedCount} codici scaduti disattivati`);
+            }
+        }, 60 * 60 * 1000); // Ogni ora
+
+        // Avvia server
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`✅ Server running on port ${PORT}`);
+            console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log(`🔑 Stripe configured: ${!!process.env.STRIPE_SECRET_KEY}`);
+            console.log(`🔑 Stripe publishable key configured: ${!!process.env.STRIPE_PUBLISHABLE_KEY}`);
+            console.log(`🪝 Webhook secret configured: ${!!process.env.STRIPE_WEBHOOK_SECRET}`);
+            console.log(`📧 Email configured: ${!!transporter}`);
+            console.log(`📊 Google Sheets configured: ${!!sheets}`);
+            console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
+            console.log(`🤖 Generatore automatico attivo`);
+            console.log(`🌐 Server ready at: http://localhost:${PORT}`);
+            
+            // Mostra alcuni codici di esempio
+            console.log('\n🎯 Codici sconto disponibili:');
+            Object.entries(discountCodes).slice(0, 5).forEach(([code, data]) => {
+                console.log(`- ${code}: ${data.description}`);
+            });
+            console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
+        });
+        
+    } catch (error) {
+        console.error('❌ Errore durante l\'avvio del server:', error);
+        process.exit(1);
     }
-}, 60 * 60 * 1000); // Ogni ora
-
-// Test configurazione email all'avvio
-if (transporter) {
-    transporter.verify((error, success) => {
-        if (error) {
-            console.error('❌ Errore configurazione email:', error.message);
-        } else {
-            console.log('📧 Server email configurato correttamente');
-        }
-    });
 }
-
-// ===== AVVIO SERVER =====
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`✅ Server running on port ${PORT}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`🔑 Stripe configured: ${!!process.env.STRIPE_SECRET_KEY}`);
-    console.log(`🔑 Stripe publishable key configured: ${!!process.env.STRIPE_PUBLISHABLE_KEY}`);
-    console.log(`🪝 Webhook secret configured: ${!!process.env.STRIPE_WEBHOOK_SECRET}`);
-    console.log(`📧 Email configured: ${!!transporter}`);
-    console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
-    console.log(`🤖 Generatore automatico attivo`);
-    console.log(`🌐 Server ready at: http://localhost:${PORT}`);
-    
-    // Mostra alcuni codici di esempio
-    console.log('\n🎯 Codici sconto disponibili:');
-    Object.entries(discountCodes).slice(0, 5).forEach(([code, data]) => {
-        console.log(`- ${code}: ${data.description}`);
-    });
-    console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
-});
 
 // ===== GESTIONE ERRORI =====
 process.on('unhandledRejection', (err) => {
@@ -942,3 +1440,6 @@ process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err);
     process.exit(1);
 });
+
+// Avvia il server
+startServer();
