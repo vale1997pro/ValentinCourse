@@ -500,7 +500,7 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
     <div style="max-width: 600px; margin: 0 auto; background: white;">
         
         <!-- Header -->
-        <div style="background: #1a73e8; color: white; padding: 30px; text-align: center;">
+        <div style="background: #8B2635; color: white; padding: 30px; text-align: center;">
             <h1 style="margin: 0; font-size: 24px;">🎥 Link Google Meet Pronto!</h1>
             <p style="margin: 10px 0 0 0; opacity: 0.9;">Il tuo appuntamento è tra 24 ore</p>
         </div>
@@ -515,10 +515,10 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
             </p>
             
             <!-- Google Meet Link -->
-            <div style="background: #1a73e8; color: white; padding: 30px; text-align: center; border-radius: 8px; margin: 30px 0;">
+            <div style="background: #8B2635; color: white; padding: 30px; text-align: center; border-radius: 8px; margin: 30px 0;">
                 <h3 style="margin: 0 0 20px 0;">🔗 Link Google Meet</h3>
                 <a href="${meetingInfo.meetLink}" 
-                   style="background: white; color: #1a73e8; padding: 15px 30px; text-decoration: none; 
+                   style="background: white; color: #8B2635; padding: 15px 30px; text-decoration: none; 
                           border-radius: 25px; font-weight: bold; font-size: 16px; display: inline-block;">
                     🎥 Unisciti alla Video Chiamata
                 </a>
@@ -536,21 +536,10 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
                 <p style="margin: 10px 0;"><strong>Durata:</strong> 90 minuti</p>
             </div>
             
-            <!-- Instructions -->
-            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #856404; margin-top: 0;">📋 Checklist Pre-Chiamata</h3>
-                <ul style="color: #856404; line-height: 1.6;">
-                    <li>Test audio e video 10 minuti prima</li>
-                    <li>Connessione internet stabile</li>
-                    <li>Ambiente tranquillo e buona illuminazione</li>
-                    <li>Portfolio, domande e materiali pronti</li>
-                </ul>
-            </div>
-            
             <!-- Calendar Button -->
             <div style="text-align: center; margin: 30px 0;">
                 <a href="${meetingInfo.eventLink}" 
-                   style="background: #28a745; color: white; padding: 12px 25px; text-decoration: none; 
+                   style="background: #1a1a1a; color: white; padding: 12px 25px; text-decoration: none; 
                           border-radius: 25px; font-weight: bold; display: inline-block;">
                     📅 Visualizza nel Google Calendar
                 </a>
@@ -564,7 +553,7 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
                 <p style="margin: 0; color: #666; font-size: 14px;">
                     <strong>Problemi tecnici?</strong><br>
                     Contattami immediatamente a 
-                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" style="color: #1a73e8;">
+                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" style="color: #8B2635;">
                         ${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}
                     </a>
                 </p>
@@ -573,11 +562,11 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         </div>
         
         <!-- Footer -->
-        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
+        <div style="background: #1a1a1a; color: white; padding: 20px; text-align: center;">
             <p style="margin: 0;">
                 <strong>Valentin Procida</strong><br>
                 VFX Artist & Career Consultant<br>
-                <a href="https://www.valentinprocida.it" style="color: #74b9ff; text-decoration: none;">www.valentinprocida.it</a>
+                <a href="https://www.valentinprocida.it" style="color: #8B2635; text-decoration: none;">www.valentinprocida.it</a>
             </p>
         </div>
     </div>
