@@ -76,7 +76,7 @@ async function testGoogleSheetsConnection() {
 }
 
 // ===== GOOGLE MEET FUNCTIONS =====
-// SECONDA VERSIONE: Con Google Meet usando configurazione alternativa
+// Versione COMPLETA con fix del fallback
 
 async function createGoogleMeetEvent(bookingData) {
     console.log('📅 createGoogleMeetEvent chiamata con:', {
@@ -96,24 +96,26 @@ async function createGoogleMeetEvent(bookingData) {
         return null;
     }
 
+    // Calcola i tempi PRIMA del try-catch così sono disponibili ovunque
+    const appointmentDate = new Date(bookingData.appointmentDate);
+    const [hours, minutes] = bookingData.appointmentTime.split(':');
+
+    const startTime = new Date(appointmentDate);
+    startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+
+    const endTime = new Date(startTime);
+    endTime.setMinutes(endTime.getMinutes() + 90);
+
     try {
-        const appointmentDate = new Date(bookingData.appointmentDate);
-        const [hours, minutes] = bookingData.appointmentTime.split(':');
-
-        const startTime = new Date(appointmentDate);
-        startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-
-        const endTime = new Date(startTime);
-        endTime.setMinutes(endTime.getMinutes() + 90);
-
-        console.log('📅 Creazione evento Google Calendar con Meet (v2):', {
+        console.log('📅 Creazione evento Google Calendar con Meet (v3):', {
             startTime: startTime.toISOString(),
             endTime: endTime.toISOString(),
             customerName: bookingData.customerName,
             customerEmail: bookingData.customerEmail
         });
 
-        const event = {
+        // Prova PRIMA senza Google Meet per vedere se almeno questo funziona
+        const basicEvent = {
             summary: `VFX Consultation - ${bookingData.customerName}`,
             description: `
 VFX Career Consultation with Valentin Procida
@@ -141,15 +143,6 @@ Argomenti da discutere:
                 dateTime: endTime.toISOString(),
                 timeZone: 'Europe/Rome',
             },
-            // Configurazione Google Meet semplificata
-            conferenceData: {
-                createRequest: {
-                    requestId: `meet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    conferenceSolutionKey: {
-                        type: 'hangoutsMeet'
-                    }
-                }
-            },
             reminders: {
                 useDefault: false,
                 overrides: [
@@ -159,32 +152,72 @@ Argomenti da discutere:
             }
         };
 
-        console.log('📅 Invio richiesta a Google Calendar API con Meet...');
+        console.log('📅 Tentativo 1: Creazione evento BASE senza Meet...');
 
+        // Crea prima evento base
         const createdEvent = await calendar.events.insert({
             calendarId: process.env.GOOGLE_CALENDAR_ID,
-            resource: event,
-            conferenceDataVersion: 1,
+            resource: basicEvent,
             sendUpdates: 'none'
         });
 
-        console.log('✅ Evento Google Calendar creato con successo:', {
-            eventId: createdEvent.data.id,
-            meetLink: createdEvent.data.hangoutLink,
-            eventLink: createdEvent.data.htmlLink
-        });
+        console.log('✅ Evento base creato con successo:', createdEvent.data.id);
 
-        const meetingInfo = {
-            eventId: createdEvent.data.id,
-            meetLink: createdEvent.data.hangoutLink || createdEvent.data.conferenceData?.hangoutLink,
-            eventLink: createdEvent.data.htmlLink,
-            startTime: startTime,
-            endTime: endTime
-        };
+        // Ora prova ad aggiungere Google Meet tramite PATCH
+        console.log('📅 Tentativo 2: Aggiunta Google Meet al evento esistente...');
 
-        console.log('🔗 Google Meet Link generato:', meetingInfo.meetLink);
+        try {
+            const meetPatch = {
+                conferenceData: {
+                    createRequest: {
+                        requestId: `meet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        conferenceSolutionKey: {
+                            type: 'hangoutsMeet'
+                        }
+                    }
+                }
+            };
 
-        return meetingInfo;
+            const updatedEvent = await calendar.events.patch({
+                calendarId: process.env.GOOGLE_CALENDAR_ID,
+                eventId: createdEvent.data.id,
+                resource: meetPatch,
+                conferenceDataVersion: 1,
+                sendUpdates: 'none'
+            });
+
+            console.log('✅ Google Meet aggiunto con successo!', {
+                eventId: updatedEvent.data.id,
+                meetLink: updatedEvent.data.hangoutLink,
+                eventLink: updatedEvent.data.htmlLink
+            });
+
+            const meetingInfo = {
+                eventId: updatedEvent.data.id,
+                meetLink: updatedEvent.data.hangoutLink || updatedEvent.data.conferenceData?.hangoutLink,
+                eventLink: updatedEvent.data.htmlLink,
+                startTime: startTime,
+                endTime: endTime
+            };
+
+            console.log('🔗 Google Meet Link generato:', meetingInfo.meetLink);
+            return meetingInfo;
+
+        } catch (meetError) {
+            console.warn('⚠️ Google Meet fallito, ma evento creato:', meetError.message);
+
+            // Ritorna l'evento senza Meet
+            const meetingInfo = {
+                eventId: createdEvent.data.id,
+                meetLink: null,
+                eventLink: createdEvent.data.htmlLink,
+                startTime: startTime,
+                endTime: endTime
+            };
+
+            console.log('📅 Evento creato SENZA Google Meet (fallback)');
+            return meetingInfo;
+        }
 
     } catch (error) {
         console.error('❌ Errore creazione evento Google Calendar:', {
@@ -193,21 +226,13 @@ Argomenti da discutere:
             errors: error.errors
         });
 
-        // Fallback: prova a creare evento senza Meet se fallisce
-        console.log('🔄 Tentativo fallback: creazione evento senza Google Meet...');
+        // Fallback finale: prova a creare evento molto semplice
+        console.log('🔄 Tentativo fallback finale: evento minimo...');
 
         try {
             const fallbackEvent = {
                 summary: `VFX Consultation - ${bookingData.customerName}`,
-                description: `
-VFX Career Consultation with Valentin Procida
-
-Cliente: ${bookingData.customerName}
-Email: ${bookingData.customerEmail}
-Telefono: ${bookingData.customerPhone}
-
-NOTA: Google Meet da aggiungere manualmente
-                `.trim(),
+                description: `Consulenza VFX con Valentin Procida\n\nCliente: ${bookingData.customerName}\nEmail: ${bookingData.customerEmail}\n\nNOTA: Google Meet da aggiungere manualmente`,
                 start: {
                     dateTime: startTime.toISOString(),
                     timeZone: 'Europe/Rome',
@@ -224,7 +249,7 @@ NOTA: Google Meet da aggiungere manualmente
                 sendUpdates: 'none'
             });
 
-            console.log('✅ Evento fallback creato senza Meet:', fallbackCreated.data.id);
+            console.log('✅ Evento fallback creato:', fallbackCreated.data.id);
 
             return {
                 eventId: fallbackCreated.data.id,
@@ -235,7 +260,7 @@ NOTA: Google Meet da aggiungere manualmente
             };
 
         } catch (fallbackError) {
-            console.error('❌ Anche il fallback è fallito:', fallbackError.message);
+            console.error('❌ Anche il fallback finale è fallito:', fallbackError.message);
             return null;
         }
     }
