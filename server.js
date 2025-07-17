@@ -18,7 +18,7 @@ let googleAuth;
 async function initGoogleServices() {
     try {
         let credentials;
-        
+
         if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
             console.log('📊 Usando credenziali Google da variabile d\'ambiente');
             credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
@@ -46,16 +46,16 @@ async function initGoogleServices() {
         // Inizializza Google Sheets
         sheets = google.sheets({ version: 'v4', auth: googleAuth });
         console.log('📊 Google Sheets configurato correttamente');
-        
+
         // Inizializza Google Calendar
         calendar = google.calendar({ version: 'v3', auth: googleAuth });
         console.log('📅 Google Calendar configurato correttamente');
-        
+
         // Test connessione
         if (process.env.GOOGLE_SPREADSHEET_ID) {
             await testGoogleSheetsConnection();
         }
-        
+
     } catch (error) {
         console.error('❌ Errore configurazione Google Services:', error.message);
         sheets = null;
@@ -76,7 +76,7 @@ async function testGoogleSheetsConnection() {
 }
 
 // ===== GOOGLE MEET FUNCTIONS =====
-// PRIMO TEST: Sostituisci createGoogleMeetEvent per testare senza Google Meet
+// SECONDA VERSIONE: Con Google Meet usando configurazione alternativa
 
 async function createGoogleMeetEvent(bookingData) {
     console.log('📅 createGoogleMeetEvent chiamata con:', {
@@ -99,21 +99,20 @@ async function createGoogleMeetEvent(bookingData) {
     try {
         const appointmentDate = new Date(bookingData.appointmentDate);
         const [hours, minutes] = bookingData.appointmentTime.split(':');
-        
+
         const startTime = new Date(appointmentDate);
         startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-        
+
         const endTime = new Date(startTime);
         endTime.setMinutes(endTime.getMinutes() + 90);
 
-        console.log('📅 Creazione evento Google Calendar (SENZA MEET - TEST):', {
+        console.log('📅 Creazione evento Google Calendar con Meet (v2):', {
             startTime: startTime.toISOString(),
             endTime: endTime.toISOString(),
             customerName: bookingData.customerName,
             customerEmail: bookingData.customerEmail
         });
 
-        // EVENTO SEMPLICE SENZA GOOGLE MEET (per testare)
         const event = {
             summary: `VFX Consultation - ${bookingData.customerName}`,
             description: `
@@ -128,7 +127,11 @@ Durata: 90 minuti
 Pagamento: €${(bookingData.amount / 100).toFixed(2)}
 ID Transazione: ${bookingData.paymentIntent}
 
-NOTA: Evento di test - Google Meet da aggiungere manualmente
+Argomenti da discutere:
+- Analisi portfolio VFX
+- Roadmap carriera personalizzata
+- Strategie industria VFX
+- CV e networking tips
             `.trim(),
             start: {
                 dateTime: startTime.toISOString(),
@@ -138,7 +141,15 @@ NOTA: Evento di test - Google Meet da aggiungere manualmente
                 dateTime: endTime.toISOString(),
                 timeZone: 'Europe/Rome',
             },
-            // RIMOSSO conferenceData per il test
+            // Configurazione Google Meet semplificata
+            conferenceData: {
+                createRequest: {
+                    requestId: `meet-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    conferenceSolutionKey: {
+                        type: 'hangoutsMeet'
+                    }
+                }
+            },
             reminders: {
                 useDefault: false,
                 overrides: [
@@ -148,30 +159,31 @@ NOTA: Evento di test - Google Meet da aggiungere manualmente
             }
         };
 
-        console.log('📅 Invio richiesta a Google Calendar API (evento semplice)...');
+        console.log('📅 Invio richiesta a Google Calendar API con Meet...');
 
         const createdEvent = await calendar.events.insert({
             calendarId: process.env.GOOGLE_CALENDAR_ID,
             resource: event,
+            conferenceDataVersion: 1,
             sendUpdates: 'none'
         });
 
-        console.log('✅ Evento Google Calendar creato con successo (senza Meet):', {
+        console.log('✅ Evento Google Calendar creato con successo:', {
             eventId: createdEvent.data.id,
+            meetLink: createdEvent.data.hangoutLink,
             eventLink: createdEvent.data.htmlLink
         });
 
-        // Simula meetingInfo anche senza Google Meet per non rompere il resto del codice
         const meetingInfo = {
             eventId: createdEvent.data.id,
-            meetLink: null, // Nessun link Meet per ora
+            meetLink: createdEvent.data.hangoutLink || createdEvent.data.conferenceData?.hangoutLink,
             eventLink: createdEvent.data.htmlLink,
             startTime: startTime,
             endTime: endTime
         };
 
-        console.log('📅 Evento creato, ma senza Google Meet link');
-        
+        console.log('🔗 Google Meet Link generato:', meetingInfo.meetLink);
+
         return meetingInfo;
 
     } catch (error) {
@@ -180,7 +192,52 @@ NOTA: Evento di test - Google Meet da aggiungere manualmente
             code: error.code,
             errors: error.errors
         });
-        return null;
+
+        // Fallback: prova a creare evento senza Meet se fallisce
+        console.log('🔄 Tentativo fallback: creazione evento senza Google Meet...');
+
+        try {
+            const fallbackEvent = {
+                summary: `VFX Consultation - ${bookingData.customerName}`,
+                description: `
+VFX Career Consultation with Valentin Procida
+
+Cliente: ${bookingData.customerName}
+Email: ${bookingData.customerEmail}
+Telefono: ${bookingData.customerPhone}
+
+NOTA: Google Meet da aggiungere manualmente
+                `.trim(),
+                start: {
+                    dateTime: startTime.toISOString(),
+                    timeZone: 'Europe/Rome',
+                },
+                end: {
+                    dateTime: endTime.toISOString(),
+                    timeZone: 'Europe/Rome',
+                }
+            };
+
+            const fallbackCreated = await calendar.events.insert({
+                calendarId: process.env.GOOGLE_CALENDAR_ID,
+                resource: fallbackEvent,
+                sendUpdates: 'none'
+            });
+
+            console.log('✅ Evento fallback creato senza Meet:', fallbackCreated.data.id);
+
+            return {
+                eventId: fallbackCreated.data.id,
+                meetLink: null,
+                eventLink: fallbackCreated.data.htmlLink,
+                startTime: startTime,
+                endTime: endTime
+            };
+
+        } catch (fallbackError) {
+            console.error('❌ Anche il fallback è fallito:', fallbackError.message);
+            return null;
+        }
     }
 }
 
@@ -193,14 +250,14 @@ async function saveBookingToGoogleSheets(bookingData) {
 
     try {
         const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-        
+
         const date = new Date(bookingData.appointmentDate || new Date());
         const formattedDate = date.toLocaleDateString('it-IT');
         const finalAmount = (bookingData.amount / 100).toFixed(2);
-        const discountText = bookingData.discount ? 
-            `${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})` : 
+        const discountText = bookingData.discount ?
+            `${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})` :
             'Nessuno';
-        
+
         const values = [[
             new Date().toLocaleString('it-IT'),
             bookingData.customerName || bookingData.name,
@@ -214,16 +271,16 @@ async function saveBookingToGoogleSheets(bookingData) {
             bookingData.paymentIntent || bookingData.paymentId,
             'Confermata'
         ]];
-        
+
         await sheets.spreadsheets.values.append({
             spreadsheetId,
             range: 'Prenotazioni!A:K',
             valueInputOption: 'USER_ENTERED',
             resource: { values }
         });
-        
+
         console.log('✅ Prenotazione salvata in Google Sheets:', bookingData.customerEmail || bookingData.email);
-        
+
     } catch (error) {
         console.error('❌ Errore salvataggio Google Sheets:', error.message);
     }
@@ -273,7 +330,7 @@ class DiscountCodeGenerator {
             code = category ? this.generateThematicCode(category) : this.generateRandomCode();
             attempts++;
         } while (!this.isCodeUnique(code) && attempts < maxRetries);
-        
+
         if (attempts >= maxRetries) {
             const timestamp = Date.now().toString().slice(-4);
             code = category ? this.generateThematicCode(category, timestamp) : this.generateRandomCode() + timestamp;
@@ -284,7 +341,7 @@ class DiscountCodeGenerator {
     createDiscountCode(options = {}) {
         const { category = null, description = null, maxUses = 100, validUntil = null, customCode = null } = options;
         const code = customCode || this.generateUniqueCode(category);
-        
+
         let autoDescription = description;
         if (!autoDescription) {
             const categoryNames = {
@@ -366,9 +423,9 @@ function createBookingConfirmationTemplate(bookingData) {
         month: 'long',
         day: 'numeric'
     });
-    
+
     const finalAmount = (bookingData.amount / 100).toFixed(2);
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -467,7 +524,7 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         month: 'long',
         day: 'numeric'
     });
-    
+
     const startTime = meetingInfo.startTime.toLocaleTimeString('it-IT', {
         hour: '2-digit',
         minute: '2-digit'
@@ -477,7 +534,7 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         hour: '2-digit',
         minute: '2-digit'
     });
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -680,9 +737,9 @@ function createAdminNotificationTemplate(bookingData) {
         month: 'long',
         day: 'numeric'
     });
-    
+
     const finalAmount = (bookingData.amount / 100).toFixed(2);
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -776,31 +833,31 @@ function scheduleReminderEmail(bookingData, meetingInfo) {
 
     const appointmentDate = new Date(bookingData.appointmentDate);
     const [hours, minutes] = bookingData.appointmentTime.split(':');
-    
+
     const meetingTime = new Date(appointmentDate);
     meetingTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-    
+
     const reminderTime = new Date(meetingTime.getTime() - 24 * 60 * 60 * 1000);
     const now = new Date();
-    
+
     console.log('⏰ Tempi calcolati:', {
         appointmentTime: meetingTime.toLocaleString('it-IT'),
         reminderTime: reminderTime.toLocaleString('it-IT'),
         now: now.toLocaleString('it-IT'),
         isInPast: reminderTime <= now
     });
-    
+
     if (reminderTime <= now) {
         console.log('📧 Reminder time nel passato, invio IMMEDIATO dell\'email Google Meet');
         sendMeetingLinkEmail(bookingData, meetingInfo);
         return;
     }
-    
+
     const timeUntilReminder = reminderTime.getTime() - now.getTime();
     const hoursUntil = timeUntilReminder / (1000 * 60 * 60);
-    
+
     console.log(`⏰ Email Google Meet programmata per: ${reminderTime.toLocaleString('it-IT')} (tra ${hoursUntil.toFixed(1)} ore)`);
-    
+
     setTimeout(() => {
         console.log('🚀 Timer scaduto - invio email Google Meet ora');
         sendMeetingLinkEmail(bookingData, meetingInfo);
@@ -809,12 +866,12 @@ function scheduleReminderEmail(bookingData, meetingInfo) {
 
 async function sendMeetingLinkEmail(bookingData, meetingInfo) {
     console.log('📧 sendMeetingLinkEmail chiamata per:', bookingData.customerEmail);
-    
+
     if (!transporter) {
         console.error('❌ Transporter email non disponibile');
         return;
     }
-    
+
     try {
         const mailOptions = {
             from: {
@@ -825,11 +882,11 @@ async function sendMeetingLinkEmail(bookingData, meetingInfo) {
             subject: `🎥 Link Google Meet per la tua consulenza VFX - ${new Date(bookingData.appointmentDate).toLocaleDateString('it-IT')}`,
             html: createMeetingLinkEmailTemplate(bookingData, meetingInfo)
         };
-        
+
         console.log('📧 Invio email Google Meet a:', bookingData.customerEmail);
         await transporter.sendMail(mailOptions);
         console.log(`✅ Email Google Meet inviata con successo a ${bookingData.customerEmail}`);
-        
+
     } catch (error) {
         console.error('❌ Errore invio email Google Meet:', error);
     }
@@ -844,7 +901,7 @@ function extractNameFromEmail(email) {
 // ===== FUNZIONI HELPER =====
 function generateInitialCodes() {
     console.log('🎫 Generazione automatica codici sconto...');
-    
+
     for (let i = 0; i < 5; i++) {
         const code = codeGenerator.createDiscountCode({
             category: 'general',
@@ -889,22 +946,22 @@ function generateInitialCodes() {
 
 function calculateDiscountedPrice(originalPrice, discountCode) {
     const discount = discountCodes[discountCode.toUpperCase()];
-    
+
     if (!discount || !discount.active) {
         return { valid: false, error: 'Codice sconto non valido' };
     }
-    
+
     if (discount.validUntil && new Date() > discount.validUntil) {
         return { valid: false, error: 'Codice sconto scaduto' };
     }
-    
+
     if (discount.maxUses && discount.usedCount >= discount.maxUses) {
         return { valid: false, error: 'Codice sconto esaurito' };
     }
-    
+
     let discountAmount = 0;
     let finalPrice = originalPrice;
-    
+
     if (discount.type === 'percentage') {
         discountAmount = Math.round(originalPrice * discount.value / 100);
         finalPrice = originalPrice - discountAmount;
@@ -912,9 +969,9 @@ function calculateDiscountedPrice(originalPrice, discountCode) {
         discountAmount = Math.min(discount.value, originalPrice);
         finalPrice = originalPrice - discountAmount;
     }
-    
+
     finalPrice = Math.max(finalPrice, 0);
-    
+
     return {
         valid: true, originalPrice, discountAmount, finalPrice,
         discountCode: discountCode.toUpperCase(), discountDescription: discount.description,
@@ -923,7 +980,7 @@ function calculateDiscountedPrice(originalPrice, discountCode) {
 }
 
 // ===== MIDDLEWARE =====
-app.use('/api/stripe-webhook', express.raw({type: 'application/json'}));
+app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use(cors({
     origin: [
@@ -937,8 +994,8 @@ app.use(cors({
 
 // ===== ENDPOINTS BASE =====
 app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'Server is running!', 
+    res.json({
+        status: 'Server is running!',
         timestamp: new Date(),
         totalDiscountCodes: Object.keys(discountCodes).length,
         emailConfigured: !!transporter,
@@ -959,7 +1016,7 @@ app.get('/api/config', (req, res) => {
 app.post('/api/send-discount-email', async (req, res) => {
     try {
         const { email, name } = req.body;
-        
+
         if (!email) {
             return res.status(400).json({ error: 'Email richiesta' });
         }
@@ -967,19 +1024,19 @@ app.post('/api/send-discount-email', async (req, res) => {
         if (!transporter) {
             return res.status(500).json({ error: 'Servizio email non configurato' });
         }
-        
+
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ error: 'Email non valida' });
         }
-        
+
         const newCode = codeGenerator.createDiscountCode({
             category: 'welcome',
             description: 'Email Signup Discount - Sconto 10%',
             maxUses: 1,
             validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         });
-        
+
         discountCodes[newCode.code] = {
             type: newCode.type,
             value: newCode.value,
@@ -991,9 +1048,9 @@ app.post('/api/send-discount-email', async (req, res) => {
             assignedTo: email,
             createdAt: new Date()
         };
-        
+
         const recipientName = name || extractNameFromEmail(email);
-        
+
         const mailOptions = {
             from: {
                 name: 'Valentin Procida',
@@ -1017,18 +1074,18 @@ Valentin Procida
 VFX Artist & Rigger
             `
         };
-        
+
         await transporter.sendMail(mailOptions);
-        
+
         console.log(`✅ Codice sconto ${newCode.code} generato e inviato a ${email}`);
-        
+
         res.json({
             success: true,
             message: 'Discount code sent successfully',
             code: newCode.code,
             email: email
         });
-        
+
     } catch (error) {
         console.error('Errore invio email discount:', error);
         res.status(500).json({
@@ -1042,12 +1099,12 @@ app.post('/api/validate-discount', async (req, res) => {
     try {
         const { code, amount } = req.body;
         if (!code) return res.status(400).json({ error: 'Codice sconto richiesto' });
-        
+
         const originalAmount = amount || 15000;
         const result = calculateDiscountedPrice(originalAmount, code);
-        
+
         if (!result.valid) return res.status(400).json({ error: result.error });
-        
+
         console.log('Codice sconto validato:', code, result);
         res.json({
             valid: true, originalPrice: result.originalPrice, discountAmount: result.discountAmount,
@@ -1066,15 +1123,15 @@ app.post('/api/create-payment-intent', async (req, res) => {
         const { email, name, phone, company, appointmentDate, appointmentTime, discountCode } = req.body;
         if (!email || !name) return res.status(400).json({ error: 'Email e nome sono richiesti' });
         if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe secret key not configured');
-        
+
         let originalAmount = 15000;
         let finalAmount = originalAmount;
         let discountInfo = null;
-        
+
         if (discountCode) {
             const discountResult = calculateDiscountedPrice(originalAmount, discountCode);
             if (!discountResult.valid) return res.status(400).json({ error: discountResult.error });
-            
+
             finalAmount = discountResult.finalPrice;
             discountInfo = {
                 code: discountResult.discountCode, description: discountResult.discountDescription,
@@ -1082,7 +1139,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
                 finalAmount: discountResult.finalPrice
             };
         }
-        
+
         const paymentIntent = await stripe.paymentIntents.create({
             amount: finalAmount, currency: 'eur', automatic_payment_methods: { enabled: true },
             metadata: {
@@ -1096,7 +1153,7 @@ app.post('/api/create-payment-intent', async (req, res) => {
             },
             description: 'VFX Career Consultation with Valentin Procida'
         });
-        
+
         res.json({
             clientSecret: paymentIntent.client_secret,
             paymentIntentId: paymentIntent.id,
@@ -1111,11 +1168,11 @@ app.post('/api/create-payment-intent', async (req, res) => {
 app.post('/api/booking-confirmation', async (req, res) => {
     try {
         const bookingData = req.body;
-        
+
         await saveBookingToGoogleSheets(bookingData);
-        
+
         const meetingInfo = await createGoogleMeetEvent(bookingData);
-        
+
         if (transporter) {
             const customerMailOptions = {
                 from: {
@@ -1126,15 +1183,15 @@ app.post('/api/booking-confirmation', async (req, res) => {
                 subject: '✅ Consulenza VFX Confermata - Valentin Procida',
                 html: createBookingConfirmationTemplate(bookingData)
             };
-            
+
             await transporter.sendMail(customerMailOptions);
             console.log('📧 Email di conferma inviata al cliente');
-            
+
             if (meetingInfo) {
                 scheduleReminderEmail(bookingData, meetingInfo);
             }
         }
-        
+
         if (transporter && process.env.ADMIN_EMAIL) {
             const adminMailOptions = {
                 from: {
@@ -1145,13 +1202,13 @@ app.post('/api/booking-confirmation', async (req, res) => {
                 subject: `🎯 Nuova Prenotazione: ${bookingData.customerName || bookingData.name} - ${bookingData.appointmentDate || 'Data da confermare'}`,
                 html: createAdminNotificationTemplate(bookingData)
             };
-            
+
             await transporter.sendMail(adminMailOptions);
             console.log('📧 Notifica admin inviata');
         }
-        
+
         res.json({ success: true });
-        
+
     } catch (error) {
         console.error('Errore in booking confirmation:', error);
         res.status(500).json({ error: 'Failed to process booking confirmation' });
@@ -1162,23 +1219,23 @@ app.post('/api/booking-confirmation', async (req, res) => {
 app.post('/api/stripe-webhook', async (req, res) => {
     const sig = req.headers['stripe-signature'];
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    
+
     let event;
-    
+
     try {
         if (!endpointSecret) {
             console.log('Webhook ricevuto ma endpoint secret non configurato');
-            return res.status(200).json({received: true});
+            return res.status(200).json({ received: true });
         }
-        
+
         event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
         console.log('Webhook evento ricevuto:', event.type);
-        
+
     } catch (err) {
         console.error('Webhook signature verification fallita:', err.message);
         return res.status(400).send(`Webhook Error: ${err.message}`);
     }
-    
+
     switch (event.type) {
         case 'payment_intent.succeeded':
             const paymentIntent = event.data.object;
@@ -1189,18 +1246,18 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 currency: paymentIntent.currency,
                 discountCode: paymentIntent.metadata.discountCode || 'Nessuno'
             });
-            
+
             if (paymentIntent.metadata.discountCode) {
                 const discount = discountCodes[paymentIntent.metadata.discountCode.toUpperCase()];
                 if (discount) {
                     discount.usedCount++;
                     console.log(`Codice ${paymentIntent.metadata.discountCode} utilizzato. Nuovo conteggio: ${discount.usedCount}`);
                 }
-                
+
                 const savings = parseInt(paymentIntent.metadata.discountAmount) / 100;
                 console.log(`🎉 Cliente ha risparmiato €${savings.toFixed(2)} con il codice ${paymentIntent.metadata.discountCode}`);
             }
-            
+
             const bookingData = {
                 customerName: paymentIntent.metadata.name,
                 customerEmail: paymentIntent.metadata.email,
@@ -1216,11 +1273,11 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 } : null,
                 timestamp: new Date().toISOString()
             };
-            
+
             await saveBookingToGoogleSheets(bookingData);
-            
+
             const meetingInfo = await createGoogleMeetEvent(bookingData);
-            
+
             if (transporter) {
                 try {
                     const customerMailOptions = {
@@ -1232,14 +1289,14 @@ app.post('/api/stripe-webhook', async (req, res) => {
                         subject: '✅ Consulenza VFX Confermata - Valentin Procida',
                         html: createBookingConfirmationTemplate(bookingData)
                     };
-                    
+
                     await transporter.sendMail(customerMailOptions);
                     console.log('📧 Email di conferma automatica inviata al cliente');
-                    
+
                     if (meetingInfo) {
                         scheduleReminderEmail(bookingData, meetingInfo);
                     }
-                    
+
                     if (process.env.ADMIN_EMAIL) {
                         const adminMailOptions = {
                             from: {
@@ -1250,7 +1307,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
                             subject: `🎯 Nuova Prenotazione: ${bookingData.customerName} - ${bookingData.appointmentDate || 'Data da confermare'}`,
                             html: createAdminNotificationTemplate(bookingData)
                         };
-                        
+
                         await transporter.sendMail(adminMailOptions);
                         console.log('📧 Notifica admin automatica inviata');
                     }
@@ -1259,7 +1316,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 }
             }
             break;
-            
+
         case 'payment_intent.payment_failed':
             const failedPayment = event.data.object;
             console.log('❌ Pagamento fallito:', {
@@ -1268,19 +1325,19 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 discountCode: failedPayment.metadata.discountCode || 'Nessuno'
             });
             break;
-            
+
         default:
             console.log(`Evento non gestito: ${event.type}`);
     }
-    
-    res.json({received: true});
+
+    res.json({ received: true });
 });
 
 // ===== ENDPOINT TEST EMAIL GOOGLE MEET =====
 app.post('/api/test-google-meet-email', async (req, res) => {
     try {
         const { email } = req.body;
-        
+
         if (!email) {
             return res.status(400).json({ error: 'Email richiesta per il test' });
         }
@@ -1288,7 +1345,7 @@ app.post('/api/test-google-meet-email', async (req, res) => {
         if (!transporter) {
             return res.status(500).json({ error: 'Servizio email non configurato' });
         }
-        
+
         // Crea dati di test
         const testBookingData = {
             customerName: 'Test Cliente',
@@ -1300,7 +1357,7 @@ app.post('/api/test-google-meet-email', async (req, res) => {
             amount: 15000,
             paymentIntent: 'pi_test_123456789'
         };
-        
+
         // Crea meetingInfo di test
         const testMeetingInfo = {
             eventId: 'test-event-123',
@@ -1309,22 +1366,22 @@ app.post('/api/test-google-meet-email', async (req, res) => {
             startTime: new Date('2025-07-18T15:30:00'),
             endTime: new Date('2025-07-18T17:00:00')
         };
-        
+
         console.log('📧 Test invio email Google Meet a:', email);
-        
+
         await sendMeetingLinkEmail(testBookingData, testMeetingInfo);
-        
-        res.json({ 
-            success: true, 
+
+        res.json({
+            success: true,
             message: 'Email di test Google Meet inviata con successo',
-            recipient: email 
+            recipient: email
         });
-        
+
     } catch (error) {
         console.error('Errore test email Google Meet:', error);
-        res.status(500).json({ 
-            error: 'Errore nel test email', 
-            details: error.message 
+        res.status(500).json({
+            error: 'Errore nel test email',
+            details: error.message
         });
     }
 });
@@ -1333,7 +1390,7 @@ app.post('/api/test-google-meet-email', async (req, res) => {
 app.post('/api/force-google-meet-email', async (req, res) => {
     try {
         const { paymentIntentId } = req.body;
-        
+
         if (!paymentIntentId) {
             return res.status(400).json({ error: 'paymentIntentId richiesto' });
         }
@@ -1349,16 +1406,16 @@ app.post('/api/force-google-meet-email', async (req, res) => {
             amount: 15000,
             paymentIntent: paymentIntentId
         };
-        
+
         console.log('🚀 Tentativo forzato creazione Google Meet per:', paymentIntentId);
-        
+
         // Prova a creare l'evento Google Meet
         const meetingInfo = await createGoogleMeetEvent(mockBookingData);
-        
+
         if (meetingInfo) {
             // Invia immediatamente l'email
             await sendMeetingLinkEmail(mockBookingData, meetingInfo);
-            
+
             res.json({
                 success: true,
                 message: 'Google Meet creato e email inviata con successo',
@@ -1371,7 +1428,7 @@ app.post('/api/force-google-meet-email', async (req, res) => {
                 error: 'Impossibile creare evento Google Meet'
             });
         }
-        
+
     } catch (error) {
         console.error('Errore force Google Meet:', error);
         res.status(500).json({
@@ -1390,10 +1447,10 @@ app.get('/api/discount-stats', (req, res) => {
         validUntil: data.validUntil, assignedTo: data.assignedTo || null,
         isExpired: data.validUntil ? new Date() > data.validUntil : false
     }));
-    
+
     const generatorStats = codeGenerator.getStats();
-    
-    res.json({ 
+
+    res.json({
         discountCodes: stats, totalCodes: Object.keys(discountCodes).length,
         generatorStats: generatorStats,
         summary: {
@@ -1407,7 +1464,7 @@ app.get('/api/discount-stats', (req, res) => {
 });
 
 app.use(/^\/api\/.*/, (req, res) => {
-    res.status(404).json({ 
+    res.status(404).json({
         error: 'API endpoint not found',
         path: req.path,
         availableEndpoints: [
@@ -1446,14 +1503,14 @@ async function startServer() {
         setInterval(() => {
             let deactivatedCount = 0;
             const now = new Date();
-            
+
             Object.entries(discountCodes).forEach(([code, data]) => {
                 if (data.validUntil && now > data.validUntil && data.active) {
                     data.active = false;
                     deactivatedCount++;
                 }
             });
-            
+
             if (deactivatedCount > 0) {
                 console.log(`🧹 Cleanup automatico: ${deactivatedCount} codici scaduti disattivati`);
             }
@@ -1468,14 +1525,14 @@ async function startServer() {
             console.log(`📅 Google Calendar configured: ${!!calendar}`);
             console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
             console.log(`🌐 Server ready at: http://localhost:${PORT}`);
-            
+
             console.log('\n🎯 Codici sconto disponibili:');
             Object.entries(discountCodes).slice(0, 5).forEach(([code, data]) => {
                 console.log(`- ${code}: ${data.description}`);
             });
             console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
         });
-        
+
     } catch (error) {
         console.error('❌ Errore durante l\'avvio del server:', error);
         process.exit(1);
