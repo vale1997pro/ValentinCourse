@@ -77,8 +77,20 @@ async function testGoogleSheetsConnection() {
 
 // ===== GOOGLE MEET FUNCTIONS =====
 async function createGoogleMeetEvent(bookingData) {
-    if (!calendar || !process.env.GOOGLE_CALENDAR_ID) {
+    console.log('📅 createGoogleMeetEvent chiamata con:', {
+        calendar: !!calendar,
+        calendarId: process.env.GOOGLE_CALENDAR_ID,
+        appointmentDate: bookingData.appointmentDate,
+        appointmentTime: bookingData.appointmentTime
+    });
+
+    if (!calendar) {
         console.warn('⚠️ Google Calendar non configurato - saltando creazione evento');
+        return null;
+    }
+
+    if (!process.env.GOOGLE_CALENDAR_ID) {
+        console.warn('⚠️ GOOGLE_CALENDAR_ID non configurato - saltando creazione evento');
         return null;
     }
 
@@ -91,6 +103,13 @@ async function createGoogleMeetEvent(bookingData) {
         
         const endTime = new Date(startTime);
         endTime.setMinutes(endTime.getMinutes() + 90);
+
+        console.log('📅 Creazione evento Google Calendar:', {
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            customerName: bookingData.customerName,
+            customerEmail: bookingData.customerEmail
+        });
 
         const event = {
             summary: `VFX Consultation - ${bookingData.customerName}`,
@@ -142,6 +161,8 @@ Argomenti da discutere:
             }
         };
 
+        console.log('📅 Invio richiesta a Google Calendar API...');
+
         const createdEvent = await calendar.events.insert({
             calendarId: process.env.GOOGLE_CALENDAR_ID,
             resource: event,
@@ -149,10 +170,13 @@ Argomenti da discutere:
             sendUpdates: 'all'
         });
 
-        console.log('✅ Evento Google Calendar creato:', createdEvent.data.id);
-        console.log('🔗 Google Meet Link:', createdEvent.data.hangoutLink);
+        console.log('✅ Evento Google Calendar creato con successo:', {
+            eventId: createdEvent.data.id,
+            meetLink: createdEvent.data.hangoutLink,
+            eventLink: createdEvent.data.htmlLink
+        });
 
-        return {
+        const meetingInfo = {
             eventId: createdEvent.data.id,
             meetLink: createdEvent.data.hangoutLink,
             eventLink: createdEvent.data.htmlLink,
@@ -160,8 +184,16 @@ Argomenti da discutere:
             endTime: endTime
         };
 
+        console.log('🔗 Google Meet Link generato:', meetingInfo.meetLink);
+        
+        return meetingInfo;
+
     } catch (error) {
-        console.error('❌ Errore creazione evento Google Calendar:', error.message);
+        console.error('❌ Errore creazione evento Google Calendar:', {
+            message: error.message,
+            code: error.code,
+            errors: error.errors
+        });
         return null;
     }
 }
@@ -357,196 +389,83 @@ function createBookingConfirmationTemplate(bookingData) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Booking Confirmation - Valentin Procida</title>
+    <title>Prenotazione Confermata</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;">
-    
-    <!-- Main Container -->
-    <div style="max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+    <div style="max-width: 600px; margin: 0 auto; background: white;">
         
         <!-- Header -->
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 50px 40px; text-align: center; position: relative;">
-            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
-                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">✅ Prenotazione Confermata</h1>
-                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">La tua consulenza VFX è stata confermata con successo</p>
-            </div>
+        <div style="background: #2c3e50; color: white; padding: 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 24px;">✅ Prenotazione Confermata</h1>
         </div>
         
         <!-- Content -->
-        <div style="padding: 50px 40px;">
+        <div style="padding: 30px;">
             
-            <!-- Welcome Message -->
-            <div style="text-align: center; margin-bottom: 40px;">
-                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
-                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
-                    La tua consulenza VFX personalizzata è stata confermata. Riceverai il link Google Meet 24 ore prima dell'appuntamento.
-                </p>
+            <h2 style="color: #2c3e50; margin-bottom: 20px;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
+            
+            <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
+                La tua consulenza VFX è stata confermata con successo. 
+                Riceverai il link Google Meet 24 ore prima dell'appuntamento.
+            </p>
+            
+            <!-- Appointment Details -->
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+                <h3 style="color: #2c3e50; margin-top: 0;">📅 Dettagli Appuntamento</h3>
+                <p style="margin: 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
+                <p style="margin: 10px 0;"><strong>Orario:</strong> ${bookingData.appointmentTime || 'Da confermare'}</p>
+                <p style="margin: 10px 0;"><strong>Durata:</strong> 90 minuti</p>
+                <p style="margin: 10px 0;"><strong>Modalità:</strong> Video chiamata Google Meet</p>
             </div>
             
-            <!-- Appointment Card -->
-            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #667eea; position: relative; overflow: hidden;">
-                <div style="position: absolute; top: -50px; right: -50px; width: 100px; height: 100px; background: rgba(102, 126, 234, 0.1); border-radius: 50%;"></div>
-                <div style="position: relative; z-index: 1;">
-                    <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                        <span style="background: #667eea; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                        Dettagli Appuntamento
-                    </h3>
-                    <div style="display: grid; gap: 15px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                            <span style="color: #6c757d; font-weight: 500;">📅 Data</span>
-                            <span style="color: #2c3e50; font-weight: 600;">${formattedDate}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                            <span style="color: #6c757d; font-weight: 500;">⏰ Orario</span>
-                            <span style="color: #2c3e50; font-weight: 600;">${bookingData.appointmentTime || 'Da confermare'}</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                            <span style="color: #6c757d; font-weight: 500;">⏱️ Durata</span>
-                            <span style="color: #2c3e50; font-weight: 600;">90 minuti</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
-                            <span style="color: #6c757d; font-weight: 500;">🎥 Modalità</span>
-                            <span style="color: #2c3e50; font-weight: 600;">Video chiamata Google Meet</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Payment Summary -->
-            <div style="background: white; border: 1px solid #e9ecef; border-radius: 20px; padding: 30px; margin: 30px 0; box-shadow: 0 5px 15px rgba(0,0,0,0.05);">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                    <span style="background: #28a745; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                    Riepilogo Pagamento
-                </h3>
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #e9ecef;">
-                    <span style="color: #6c757d; font-weight: 500;">💳 Importo pagato</span>
-                    <span style="color: #28a745; font-weight: 700; font-size: 18px;">€${finalAmount}</span>
-                </div>
-                ${bookingData.discount ? `
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                    <span style="color: #6c757d; font-weight: 500;">🎟️ Sconto applicato</span>
-                    <span style="color: #667eea; font-weight: 600;">${bookingData.discount.code}</span>
-                </div>` : ''}
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
-                    <span style="color: #6c757d; font-weight: 500;">🔐 ID Transazione</span>
-                    <span style="color: #6c757d; font-family: monospace; font-size: 12px;">${bookingData.paymentIntent || bookingData.paymentId}</span>
-                </div>
+            <!-- Payment Details -->
+            <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+                <h3 style="color: #2c3e50; margin-top: 0;">💳 Pagamento</h3>
+                <p style="margin: 10px 0;"><strong>Importo:</strong> €${finalAmount}</p>
+                ${bookingData.discount ? `<p style="margin: 10px 0;"><strong>Sconto:</strong> ${bookingData.discount.code}</p>` : ''}
+                <p style="margin: 10px 0; color: #666; font-size: 12px;"><strong>ID:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
             </div>
             
             <!-- What to Expect -->
-            <div style="background: linear-gradient(135deg, #e8f4f8 0%, #d1ecf1 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #17a2b8;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                    <span style="background: #17a2b8; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                    Cosa Aspettarsi dalla Consulenza
-                </h3>
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📊</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Analisi Portfolio</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Review completa del tuo reel e portfolio VFX</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🗺️</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Roadmap Carriera</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Piano personalizzato per i tuoi obiettivi</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🎯</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Strategie Concrete</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Tattiche pratiche per entrare nell'industria</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📝</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">CV & Email Templates</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Template ottimizzati per l'industria VFX</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🤝</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Network & Contatti</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Connessioni e opportunità nell'industria</span>
-                        </div>
-                    </div>
-                    <div style="display: flex; align-items: flex-start; gap: 12px;">
-                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📚</span>
-                        <div>
-                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Risorse Follow-up</strong>
-                            <span style="color: #6c757d; font-size: 14px;">Materiali e guide per continuare il percorso</span>
-                        </div>
-                    </div>
-                </div>
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #2c3e50;">🎯 Cosa Aspettarsi</h3>
+                <ul style="color: #555; line-height: 1.6;">
+                    <li>Analisi completa del tuo portfolio VFX</li>
+                    <li>Roadmap personalizzata per la tua carriera</li>
+                    <li>Strategie concrete per entrare nell'industria</li>
+                    <li>Template CV e email ottimizzati</li>
+                    <li>Risorse e contatti utili</li>
+                    <li>Follow-up con materiali aggiuntivi</li>
+                </ul>
             </div>
             
-            <!-- Preparation Tips -->
-            <div style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #ffc107;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                    <span style="background: #ffc107; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                    Come Prepararsi alla Sessione
-                </h3>
-                <p style="color: #856404; margin-bottom: 20px; font-size: 16px;">Per massimizzare il valore della nostra consulenza:</p>
-                <div style="display: grid; gap: 15px;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">1</span>
-                        <span style="color: #856404; font-weight: 500;">Prepara il tuo portfolio/reel più recente</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">2</span>
-                        <span style="color: #856404; font-weight: 500;">Scrivi una lista delle tue domande specifiche</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">3</span>
-                        <span style="color: #856404; font-weight: 500;">Rifletti sui tuoi obiettivi di carriera a breve e lungo termine</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">4</span>
-                        <span style="color: #856404; font-weight: 500;">Tieni carta e penna pronti per prendere note</span>
-                    </div>
-                </div>
+            <!-- Preparation -->
+            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
+                <h3 style="color: #856404; margin-top: 0;">📋 Preparazione</h3>
+                <p style="color: #856404; margin-bottom: 15px;">Per massimizzare il valore della consulenza:</p>
+                <ul style="color: #856404; line-height: 1.6;">
+                    <li>Prepara il tuo portfolio/reel più recente</li>
+                    <li>Elenca le tue domande specifiche</li>
+                    <li>Pensa ai tuoi obiettivi di carriera</li>
+                    <li>Avere carta e penna per prendere note</li>
+                </ul>
             </div>
             
-            <!-- Next Steps -->
-            <div style="text-align: center; margin: 40px 0; padding: 30px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px;">
-                <h3 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 18px; font-weight: 600;">📧 Prossimi Passi</h3>
-                <p style="color: #6c757d; margin: 0; font-size: 16px; line-height: 1.6;">
-                    Ti invierò il <strong>link Google Meet</strong> 24 ore prima dell'appuntamento.<br>
-                    Se hai domande urgenti, rispondi pure a questa email!
-                </p>
-            </div>
-            
-            <!-- Guarantee -->
-            <div style="background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border-radius: 20px; padding: 30px; text-align: center; margin: 30px 0; border-left: 5px solid #28a745;">
-                <div style="background: white; border-radius: 50%; width: 60px; height: 60px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0,0,0,0.1);">
-                    <span style="font-size: 24px;">🛡️</span>
-                </div>
-                <h3 style="color: #155724; margin: 0 0 10px 0; font-size: 20px; font-weight: 600;">Garanzia 100% Soddisfazione</h3>
-                <p style="color: #155724; margin: 0; font-size: 16px;">
-                    Se non sei completamente soddisfatto della consulenza, ti rimborserò entro 48 ore. La tua soddisfazione è la mia priorità.
+            <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                <p style="margin: 0; color: #666;">
+                    Ti invierò il link per la video chiamata 24 ore prima dell'appuntamento.
+                    <br>Se hai domande, rispondi pure a questa email!
                 </p>
             </div>
             
         </div>
         
         <!-- Footer -->
-        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
-            <div style="margin-bottom: 20px;">
-                <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">Valentin Procida</h3>
-                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 14px;">VFX Artist & Career Consultant</p>
-            </div>
-            <div style="display: flex; justify-content: center; gap: 20px; margin: 20px 0;">
-                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">LinkedIn</a>
-                <a href="https://vimeo.com/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">Vimeo</a>
-                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">Website</a>
-            </div>
-            <p style="margin: 20px 0 0 0; color: rgba(255,255,255,0.6); font-size: 12px;">
-                © 2025 Valentin Procida - VFX Consulting. Tutti i diritti riservati.
+        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
+            <p style="margin: 0;">
+                <strong>Valentin Procida</strong><br>
+                VFX Artist & Career Consultant<br>
+                <a href="https://www.valentinprocida.it" style="color: #74b9ff; text-decoration: none;">www.valentinprocida.it</a>
             </p>
         </div>
     </div>
@@ -579,125 +498,77 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Google Meet Link - Valentin Procida</title>
+    <title>Link Google Meet - Valentin Procida</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); min-height: 100vh;">
-    
-    <!-- Main Container -->
-    <div style="max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
+    <div style="max-width: 600px; margin: 0 auto; background: white;">
         
         <!-- Header -->
-        <div style="background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); padding: 50px 40px; text-align: center; position: relative;">
-            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
-                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">🎥 Link Video Chiamata Pronto!</h1>
-                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">Il tuo appuntamento VFX è tra 24 ore</p>
-            </div>
+        <div style="background: #1a73e8; color: white; padding: 30px; text-align: center;">
+            <h1 style="margin: 0; font-size: 24px;">🎥 Link Google Meet Pronto!</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">Il tuo appuntamento è tra 24 ore</p>
         </div>
         
         <!-- Content -->
-        <div style="padding: 50px 40px;">
+        <div style="padding: 30px;">
             
-            <!-- Welcome Message -->
-            <div style="text-align: center; margin-bottom: 40px;">
-                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">Ciao ${bookingData.customerName}!</h2>
-                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
-                    Il tuo appuntamento è confermato e il link per la video chiamata è pronto. Ci vediamo domani!
+            <h2 style="color: #2c3e50; margin-bottom: 20px;">Ciao ${bookingData.customerName}!</h2>
+            
+            <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
+                Il tuo appuntamento è confermato e il link per la video chiamata è pronto. Ci vediamo domani!
+            </p>
+            
+            <!-- Google Meet Link -->
+            <div style="background: #1a73e8; color: white; padding: 30px; text-align: center; border-radius: 8px; margin: 30px 0;">
+                <h3 style="margin: 0 0 20px 0;">🔗 Link Google Meet</h3>
+                <a href="${meetingInfo.meetLink}" 
+                   style="background: white; color: #1a73e8; padding: 15px 30px; text-decoration: none; 
+                          border-radius: 25px; font-weight: bold; font-size: 16px; display: inline-block;">
+                    🎥 Unisciti alla Video Chiamata
+                </a>
+                <p style="margin: 20px 0 0 0; opacity: 0.9; font-size: 14px;">
+                    Clicca sul link 5-10 minuti prima dell'appuntamento
                 </p>
             </div>
             
-            <!-- Google Meet Link -->
-            <div style="background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); border-radius: 20px; padding: 40px; text-align: center; margin: 30px 0; position: relative; overflow: hidden;">
-                <div style="position: absolute; top: -30px; right: -30px; width: 80px; height: 80px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                <div style="position: absolute; bottom: -40px; left: -40px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                <div style="position: relative; z-index: 1;">
-                    <div style="background: white; border-radius: 50%; width: 60px; height: 60px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
-                        <span style="font-size: 24px;">🔗</span>
-                    </div>
-                    <h3 style="color: white; margin: 0 0 20px 0; font-size: 20px; font-weight: 600;">Link Google Meet</h3>
-                    <a href="${meetingInfo.meetLink}" 
-                       style="background: white; color: #1a73e8; padding: 15px 30px; text-decoration: none; 
-                              border-radius: 50px; font-weight: 600; font-size: 16px; display: inline-block;
-                              box-shadow: 0 5px 15px rgba(0,0,0,0.2); transition: all 0.3s ease;">
-                        🎥 Unisciti alla Video Chiamata
-                    </a>
-                    <p style="color: rgba(255,255,255,0.9); margin: 20px 0 0 0; font-size: 14px;">
-                        Clicca sul link 5-10 minuti prima dell'appuntamento
-                    </p>
-                </div>
-            </div>
-            
             <!-- Meeting Details -->
-            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #1a73e8;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                    <span style="background: #1a73e8; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                    Dettagli Appuntamento
-                </h3>
-                <div style="display: grid; gap: 15px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                        <span style="color: #6c757d; font-weight: 500;">📅 Data</span>
-                        <span style="color: #2c3e50; font-weight: 600;">${formattedDate}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                        <span style="color: #6c757d; font-weight: 500;">⏰ Orario</span>
-                        <span style="color: #2c3e50; font-weight: 600;">${startTime} - ${endTime}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                        <span style="color: #6c757d; font-weight: 500;">🌍 Fuso Orario</span>
-                        <span style="color: #2c3e50; font-weight: 600;">Europe/Rome (GMT+1)</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
-                        <span style="color: #6c757d; font-weight: 500;">⏱️ Durata</span>
-                        <span style="color: #2c3e50; font-weight: 600;">90 minuti</span>
-                    </div>
-                </div>
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #2c3e50; margin-top: 0;">📅 Dettagli Appuntamento</h3>
+                <p style="margin: 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
+                <p style="margin: 10px 0;"><strong>Orario:</strong> ${startTime} - ${endTime}</p>
+                <p style="margin: 10px 0;"><strong>Fuso Orario:</strong> Europe/Rome (GMT+1)</p>
+                <p style="margin: 10px 0;"><strong>Durata:</strong> 90 minuti</p>
             </div>
             
             <!-- Instructions -->
-            <div style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #ffc107;">
-                <h3 style="color: #856404; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
-                    <span style="background: #ffc107; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
-                    Checklist Pre-Chiamata
-                </h3>
-                <div style="display: grid; gap: 15px;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
-                        <span style="color: #856404; font-weight: 500;">Test audio e video 10 minuti prima</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
-                        <span style="color: #856404; font-weight: 500;">Connessione internet stabile</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
-                        <span style="color: #856404; font-weight: 500;">Ambiente tranquillo e buona illuminazione</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
-                        <span style="color: #856404; font-weight: 500;">Portfolio, domande e materiali pronti</span>
-                    </div>
-                </div>
+            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #856404; margin-top: 0;">📋 Checklist Pre-Chiamata</h3>
+                <ul style="color: #856404; line-height: 1.6;">
+                    <li>Test audio e video 10 minuti prima</li>
+                    <li>Connessione internet stabile</li>
+                    <li>Ambiente tranquillo e buona illuminazione</li>
+                    <li>Portfolio, domande e materiali pronti</li>
+                </ul>
             </div>
             
             <!-- Calendar Button -->
-            <div style="text-align: center; margin: 40px 0;">
+            <div style="text-align: center; margin: 30px 0;">
                 <a href="${meetingInfo.eventLink}" 
-                   style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 15px 30px; text-decoration: none; 
-                          border-radius: 50px; font-weight: 600; font-size: 16px; display: inline-block;
-                          box-shadow: 0 5px 15px rgba(40, 167, 69, 0.3);">
+                   style="background: #28a745; color: white; padding: 12px 25px; text-decoration: none; 
+                          border-radius: 25px; font-weight: bold; display: inline-block;">
                     📅 Visualizza nel Google Calendar
                 </a>
-                <p style="color: #6c757d; margin: 15px 0 0 0; font-size: 14px;">
-                    L'evento è stato automaticamente aggiunto al tuo calendario con promemoria
+                <p style="color: #666; margin: 15px 0 0 0; font-size: 14px;">
+                    L'evento è stato automaticamente aggiunto al tuo calendario
                 </p>
             </div>
             
             <!-- Support -->
-            <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 15px; padding: 25px; text-align: center; margin: 30px 0;">
-                <h4 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 16px;">❓ Problemi Tecnici?</h4>
-                <p style="color: #6c757d; margin: 0; font-size: 14px;">
-                    Se hai difficoltà con il link Google Meet, contattami immediatamente a<br>
-                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" 
-                       style="color: #1a73e8; text-decoration: none; font-weight: 600;">
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
+                <p style="margin: 0; color: #666; font-size: 14px;">
+                    <strong>Problemi tecnici?</strong><br>
+                    Contattami immediatamente a 
+                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" style="color: #1a73e8;">
                         ${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}
                     </a>
                 </p>
@@ -706,20 +577,17 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         </div>
         
         <!-- Footer -->
-        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
-            <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">A presto!</h3>
-            <p style="margin: 0 0 20px 0; color: rgba(255,255,255,0.8); font-size: 16px;">
+        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
+            <p style="margin: 0;">
                 <strong>Valentin Procida</strong><br>
-                VFX Artist & Career Consultant
+                VFX Artist & Career Consultant<br>
+                <a href="https://www.valentinprocida.it" style="color: #74b9ff; text-decoration: none;">www.valentinprocida.it</a>
             </p>
-            <div style="display: flex; justify-content: center; gap: 20px;">
-                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">LinkedIn</a>
-                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none;">Website</a>
-            </div>
         </div>
     </div>
 </body>
 </html>`;
+}
 }
 
 function createDiscountEmailTemplate(name, discountCode, discountAmount) {
@@ -910,6 +778,17 @@ function createAdminNotificationTemplate(bookingData) {
 
 // ===== SCHEDULER & EMAIL FUNCTIONS =====
 function scheduleReminderEmail(bookingData, meetingInfo) {
+    console.log('📧 scheduleReminderEmail chiamata con:', {
+        appointmentDate: bookingData.appointmentDate,
+        appointmentTime: bookingData.appointmentTime,
+        meetingInfo: meetingInfo ? 'PRESENTE' : 'MANCANTE'
+    });
+
+    if (!meetingInfo) {
+        console.error('❌ meetingInfo è null - non posso programmare email Google Meet');
+        return;
+    }
+
     const appointmentDate = new Date(bookingData.appointmentDate);
     const [hours, minutes] = bookingData.appointmentTime.split(':');
     
@@ -919,23 +798,37 @@ function scheduleReminderEmail(bookingData, meetingInfo) {
     const reminderTime = new Date(meetingTime.getTime() - 24 * 60 * 60 * 1000);
     const now = new Date();
     
+    console.log('⏰ Tempi calcolati:', {
+        appointmentTime: meetingTime.toLocaleString('it-IT'),
+        reminderTime: reminderTime.toLocaleString('it-IT'),
+        now: now.toLocaleString('it-IT'),
+        isInPast: reminderTime <= now
+    });
+    
     if (reminderTime <= now) {
-        console.log('📧 Reminder time in passato, invio immediato');
+        console.log('📧 Reminder time nel passato, invio IMMEDIATO dell\'email Google Meet');
         sendMeetingLinkEmail(bookingData, meetingInfo);
         return;
     }
     
     const timeUntilReminder = reminderTime.getTime() - now.getTime();
+    const hoursUntil = timeUntilReminder / (1000 * 60 * 60);
     
-    console.log(`⏰ Email Google Meet programmata per: ${reminderTime.toLocaleString('it-IT')}`);
+    console.log(`⏰ Email Google Meet programmata per: ${reminderTime.toLocaleString('it-IT')} (tra ${hoursUntil.toFixed(1)} ore)`);
     
     setTimeout(() => {
+        console.log('🚀 Timer scaduto - invio email Google Meet ora');
         sendMeetingLinkEmail(bookingData, meetingInfo);
     }, timeUntilReminder);
 }
 
 async function sendMeetingLinkEmail(bookingData, meetingInfo) {
-    if (!transporter) return;
+    console.log('📧 sendMeetingLinkEmail chiamata per:', bookingData.customerEmail);
+    
+    if (!transporter) {
+        console.error('❌ Transporter email non disponibile');
+        return;
+    }
     
     try {
         const mailOptions = {
@@ -948,8 +841,9 @@ async function sendMeetingLinkEmail(bookingData, meetingInfo) {
             html: createMeetingLinkEmailTemplate(bookingData, meetingInfo)
         };
         
+        console.log('📧 Invio email Google Meet a:', bookingData.customerEmail);
         await transporter.sendMail(mailOptions);
-        console.log(`📧 Email Google Meet inviata a ${bookingData.customerEmail}`);
+        console.log(`✅ Email Google Meet inviata con successo a ${bookingData.customerEmail}`);
         
     } catch (error) {
         console.error('❌ Errore invio email Google Meet:', error);
@@ -1397,6 +1291,111 @@ app.post('/api/stripe-webhook', async (req, res) => {
     res.json({received: true});
 });
 
+// ===== ENDPOINT TEST EMAIL GOOGLE MEET =====
+app.post('/api/test-google-meet-email', async (req, res) => {
+    try {
+        const { email } = req.body;
+        
+        if (!email) {
+            return res.status(400).json({ error: 'Email richiesta per il test' });
+        }
+
+        if (!transporter) {
+            return res.status(500).json({ error: 'Servizio email non configurato' });
+        }
+        
+        // Crea dati di test
+        const testBookingData = {
+            customerName: 'Test Cliente',
+            customerEmail: email,
+            customerPhone: '+39 123 456 7890',
+            company: 'Test Company',
+            appointmentDate: '2025-07-18', // Domani
+            appointmentTime: '15:30',
+            amount: 15000,
+            paymentIntent: 'pi_test_123456789'
+        };
+        
+        // Crea meetingInfo di test
+        const testMeetingInfo = {
+            eventId: 'test-event-123',
+            meetLink: 'https://meet.google.com/test-link-123',
+            eventLink: 'https://calendar.google.com/event?eid=test',
+            startTime: new Date('2025-07-18T15:30:00'),
+            endTime: new Date('2025-07-18T17:00:00')
+        };
+        
+        console.log('📧 Test invio email Google Meet a:', email);
+        
+        await sendMeetingLinkEmail(testBookingData, testMeetingInfo);
+        
+        res.json({ 
+            success: true, 
+            message: 'Email di test Google Meet inviata con successo',
+            recipient: email 
+        });
+        
+    } catch (error) {
+        console.error('Errore test email Google Meet:', error);
+        res.status(500).json({ 
+            error: 'Errore nel test email', 
+            details: error.message 
+        });
+    }
+});
+
+// ===== ENDPOINT FORZA INVIO EMAIL GOOGLE MEET =====
+app.post('/api/force-google-meet-email', async (req, res) => {
+    try {
+        const { paymentIntentId } = req.body;
+        
+        if (!paymentIntentId) {
+            return res.status(400).json({ error: 'paymentIntentId richiesto' });
+        }
+
+        // Simula i dati della prenotazione
+        // In un caso reale dovresti recuperarli dal database o da Stripe
+        const mockBookingData = {
+            customerName: 'Cliente Test',
+            customerEmail: 'test@example.com', // Cambia con l'email reale
+            customerPhone: '+39 123 456 7890',
+            appointmentDate: '2025-07-18',
+            appointmentTime: '15:30',
+            amount: 15000,
+            paymentIntent: paymentIntentId
+        };
+        
+        console.log('🚀 Tentativo forzato creazione Google Meet per:', paymentIntentId);
+        
+        // Prova a creare l'evento Google Meet
+        const meetingInfo = await createGoogleMeetEvent(mockBookingData);
+        
+        if (meetingInfo) {
+            // Invia immediatamente l'email
+            await sendMeetingLinkEmail(mockBookingData, meetingInfo);
+            
+            res.json({
+                success: true,
+                message: 'Google Meet creato e email inviata con successo',
+                meetLink: meetingInfo.meetLink,
+                eventId: meetingInfo.eventId
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                error: 'Impossibile creare evento Google Meet'
+            });
+        }
+        
+    } catch (error) {
+        console.error('Errore force Google Meet:', error);
+        res.status(500).json({
+            error: 'Errore nella creazione forzata Google Meet',
+            details: error.message
+        });
+    }
+});
+
 // ===== ALTRI ENDPOINTS =====
 app.get('/api/discount-stats', (req, res) => {
     const stats = Object.entries(discountCodes).map(([code, data]) => ({
@@ -1429,11 +1428,16 @@ app.use(/^\/api\/.*/, (req, res) => {
         availableEndpoints: [
             'GET /api/health',
             'GET /api/config',
+            'GET /api/test-sheets',
+            'GET /api/test-calendar',
+            'POST /api/test-google-meet-email',
+            'POST /api/force-google-meet-email',
             'POST /api/send-discount-email',
             'POST /api/validate-discount',
             'POST /api/create-payment-intent',
             'POST /api/booking-confirmation',
-            'GET /api/discount-stats'
+            'GET /api/discount-stats',
+            'POST /api/test-email'
         ]
     });
 });
