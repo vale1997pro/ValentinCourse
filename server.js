@@ -130,6 +130,8 @@ Argomenti da discutere:
 - Roadmap carriera personalizzata
 - Strategie industria VFX
 - CV e networking tips
+
+NOTA: Cliente da contattare separatamente per il link Google Meet
             `.trim(),
             start: {
                 dateTime: startTime.toISOString(),
@@ -139,10 +141,7 @@ Argomenti da discutere:
                 dateTime: endTime.toISOString(),
                 timeZone: 'Europe/Rome',
             },
-            attendees: [
-                { email: bookingData.customerEmail, displayName: bookingData.customerName },
-                { email: process.env.ADMIN_EMAIL || process.env.EMAIL_USER }
-            ],
+            // RIMOSSO: attendees - causa problemi con Service Account
             conferenceData: {
                 createRequest: {
                     requestId: `meet-${Date.now()}`,
@@ -167,7 +166,7 @@ Argomenti da discutere:
             calendarId: process.env.GOOGLE_CALENDAR_ID,
             resource: event,
             conferenceDataVersion: 1,
-            sendUpdates: 'all'
+            sendUpdates: 'none' // Non inviare aggiornamenti automatici
         });
 
         console.log('✅ Evento Google Calendar creato con successo:', {
@@ -197,7 +196,6 @@ Argomenti da discutere:
         return null;
     }
 }
-
 // ===== FUNZIONI GOOGLE SHEETS =====
 async function saveBookingToGoogleSheets(bookingData) {
     if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
