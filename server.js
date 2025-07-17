@@ -1,28 +1,28 @@
-// server.js - Sistema completo con codici sconto automatici, email e Google Sheets
+// server.js - Sistema completo con Google Meet, email eleganti e Google Sheets
 require('dotenv').config();
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const cors = require('cors');
 const nodemailer = require('nodemailer');
 const { google } = require('googleapis');
+const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ===== GOOGLE SHEETS SETUP =====
+// ===== GOOGLE SHEETS & CALENDAR SETUP =====
 let sheets;
-let sheetsAuth;
+let calendar;
+let googleAuth;
 
-async function initGoogleSheets() {
+async function initGoogleServices() {
     try {
         let credentials;
         
         if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
-            // Produzione: usa la variabile d'ambiente
             console.log('📊 Usando credenziali Google da variabile d\'ambiente');
             credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
         } else if (process.env.NODE_ENV === 'development') {
-            // Sviluppo: carica dal file locale (solo in dev)
             try {
                 console.log('📊 Usando credenziali Google da file locale');
                 credentials = require('./google-service-account.json');
@@ -35,13 +35,21 @@ async function initGoogleSheets() {
             return;
         }
 
-        sheetsAuth = new google.auth.GoogleAuth({
+        googleAuth = new google.auth.GoogleAuth({
             credentials: credentials,
-            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+            scopes: [
+                'https://www.googleapis.com/auth/spreadsheets',
+                'https://www.googleapis.com/auth/calendar'
+            ]
         });
 
-        sheets = google.sheets({ version: 'v4', auth: sheetsAuth });
+        // Inizializza Google Sheets
+        sheets = google.sheets({ version: 'v4', auth: googleAuth });
         console.log('📊 Google Sheets configurato correttamente');
+        
+        // Inizializza Google Calendar
+        calendar = google.calendar({ version: 'v3', auth: googleAuth });
+        console.log('📅 Google Calendar configurato correttamente');
         
         // Test connessione
         if (process.env.GOOGLE_SPREADSHEET_ID) {
@@ -49,8 +57,9 @@ async function initGoogleSheets() {
         }
         
     } catch (error) {
-        console.error('❌ Errore configurazione Google Sheets:', error.message);
+        console.error('❌ Errore configurazione Google Services:', error.message);
         sheets = null;
+        calendar = null;
     }
 }
 
@@ -63,6 +72,97 @@ async function testGoogleSheetsConnection() {
         console.log('✅ Test Google Sheets OK - Headers trovati:', response.data.values ? response.data.values[0] : 'Nessun header');
     } catch (error) {
         console.warn('⚠️ Test Google Sheets fallito:', error.message);
+    }
+}
+
+// ===== GOOGLE MEET FUNCTIONS =====
+async function createGoogleMeetEvent(bookingData) {
+    if (!calendar || !process.env.GOOGLE_CALENDAR_ID) {
+        console.warn('⚠️ Google Calendar non configurato - saltando creazione evento');
+        return null;
+    }
+
+    try {
+        const appointmentDate = new Date(bookingData.appointmentDate);
+        const [hours, minutes] = bookingData.appointmentTime.split(':');
+        
+        const startTime = new Date(appointmentDate);
+        startTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        const endTime = new Date(startTime);
+        endTime.setMinutes(endTime.getMinutes() + 90);
+
+        const event = {
+            summary: `VFX Consultation - ${bookingData.customerName}`,
+            description: `
+VFX Career Consultation with Valentin Procida
+
+Cliente: ${bookingData.customerName}
+Email: ${bookingData.customerEmail}
+Telefono: ${bookingData.customerPhone}
+${bookingData.company ? `Azienda: ${bookingData.company}` : ''}
+
+Durata: 90 minuti
+Pagamento: €${(bookingData.amount / 100).toFixed(2)}
+ID Transazione: ${bookingData.paymentIntent}
+
+Argomenti da discutere:
+- Analisi portfolio VFX
+- Roadmap carriera personalizzata
+- Strategie industria VFX
+- CV e networking tips
+            `.trim(),
+            start: {
+                dateTime: startTime.toISOString(),
+                timeZone: 'Europe/Rome',
+            },
+            end: {
+                dateTime: endTime.toISOString(),
+                timeZone: 'Europe/Rome',
+            },
+            attendees: [
+                { email: bookingData.customerEmail, displayName: bookingData.customerName },
+                { email: process.env.ADMIN_EMAIL || process.env.EMAIL_USER }
+            ],
+            conferenceData: {
+                createRequest: {
+                    requestId: `meet-${Date.now()}`,
+                    conferenceSolutionKey: {
+                        type: 'hangoutsMeet'
+                    }
+                }
+            },
+            reminders: {
+                useDefault: false,
+                overrides: [
+                    { method: 'email', minutes: 24 * 60 },
+                    { method: 'email', minutes: 60 },
+                    { method: 'popup', minutes: 10 }
+                ]
+            }
+        };
+
+        const createdEvent = await calendar.events.insert({
+            calendarId: process.env.GOOGLE_CALENDAR_ID,
+            resource: event,
+            conferenceDataVersion: 1,
+            sendUpdates: 'all'
+        });
+
+        console.log('✅ Evento Google Calendar creato:', createdEvent.data.id);
+        console.log('🔗 Google Meet Link:', createdEvent.data.hangoutLink);
+
+        return {
+            eventId: createdEvent.data.id,
+            meetLink: createdEvent.data.hangoutLink,
+            eventLink: createdEvent.data.htmlLink,
+            startTime: startTime,
+            endTime: endTime
+        };
+
+    } catch (error) {
+        console.error('❌ Errore creazione evento Google Calendar:', error.message);
+        return null;
     }
 }
 
@@ -84,7 +184,7 @@ async function saveBookingToGoogleSheets(bookingData) {
             'Nessuno';
         
         const values = [[
-            new Date().toLocaleString('it-IT'), // Timestamp prenotazione
+            new Date().toLocaleString('it-IT'),
             bookingData.customerName || bookingData.name,
             bookingData.customerEmail || bookingData.email,
             bookingData.customerPhone || bookingData.phone,
@@ -207,7 +307,6 @@ const codeGenerator = new DiscountCodeGenerator();
 
 // ===== DATABASE CODICI SCONTO =====
 let discountCodes = {
-    // Codici manuali strategici
     'WELCOME10': {
         type: 'percentage', value: 10, description: 'Benvenuto - Sconto 10%',
         active: true, maxUses: null, usedCount: 0, validUntil: null
@@ -233,100 +332,13 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransport(emailConfig);
+    transporter = nodemailer.createTransporter(emailConfig);
     console.log('📧 Email transporter configurato');
 } else {
     console.warn('⚠️ Configurazione email mancante - le email non saranno inviate');
 }
 
-// ===== TEMPLATE EMAIL =====
-function createDiscountEmailTemplate(name, discountCode, discountAmount) {
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Discount Code - Valentin Procida</title>
-</head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3ede6;">
-    <div style="max-width: 600px; margin: 0 auto; background-color: white;">
-        <!-- Header -->
-        <div style="background-color: #0a0a0a; padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 24px; letter-spacing: 1px;">VALENTIN PROCIDA</h1>
-            <p style="color: #ff4136; margin: 5px 0 0 0; font-size: 14px; letter-spacing: 1px;">RIGGER & CFX ARTIST</p>
-        </div>
-        
-        <!-- Main Content -->
-        <div style="padding: 40px 30px;">
-            <h2 style="color: #0a0a0a; font-size: 28px; margin: 0 0 20px 0; text-align: center;">🎉 Your Discount Code is Ready!</h2>
-            
-            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-                ${name ? `Hi ${name},` : 'Hello!'}<br><br>
-                Thank you for your interest in my VFX consultation services! Here's your exclusive ${discountAmount}% discount code:
-            </p>
-            
-            <!-- Discount Code Box -->
-            <div style="background-color: #ff4136; color: white; padding: 25px; border-radius: 8px; text-align: center; margin: 30px 0;">
-                <p style="margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your Discount Code</p>
-                <div style="font-size: 32px; font-weight: bold; letter-spacing: 3px; margin: 10px 0;">${discountCode}</div>
-                <p style="margin: 10px 0 0 0; font-size: 14px;">Save ${discountAmount}% on your VFX consultation</p>
-            </div>
-            
-            <!-- Features -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #0a0a0a; margin: 0 0 20px 0;">What's included in your consultation:</h3>
-                <ul style="color: #666; line-height: 1.8; margin: 0; padding-left: 20px;">
-                    <li>90-minute personalized 1-on-1 session</li>
-                    <li>Portfolio analysis and feedback</li>
-                    <li>Career roadmap tailored to your goals</li>
-                    <li>Industry insights and networking tips</li>
-                    <li>Custom CV and email templates</li>
-                    <li>Follow-up resources and materials</li>
-                </ul>
-            </div>
-            
-            <!-- CTA Button -->
-            <div style="text-align: center; margin: 40px 0;">
-                <a href="https://www.valentinprocida.it/sales.html" 
-                   style="background-color: #ff4136; color: white; padding: 15px 30px; text-decoration: none; 
-                          border-radius: 6px; font-weight: bold; font-size: 16px; display: inline-block;
-                          text-transform: uppercase; letter-spacing: 1px;">
-                    Book Your Consultation Now
-                </a>
-            </div>
-            
-            <div style="border-top: 1px solid #eee; padding-top: 20px; margin-top: 30px;">
-                <p style="color: #999; font-size: 14px; line-height: 1.6;">
-                    <strong>How to use your code:</strong><br>
-                    1. Visit the consultation booking page<br>
-                    2. Enter code <strong>${discountCode}</strong> at checkout<br>
-                    3. Enjoy your ${discountAmount}% discount!
-                </p>
-                
-                <p style="color: #999; font-size: 12px; margin-top: 20px;">
-                    This code expires in 30 days. Can't find the checkout page? Reply to this email and I'll help you out!
-                </p>
-            </div>
-        </div>
-        
-        <!-- Footer -->
-        <div style="background-color: #0a0a0a; padding: 20px; text-align: center;">
-            <p style="color: white; margin: 0; font-size: 14px;">
-                Best regards,<br>
-                <strong>Valentin Procida</strong><br>
-                VFX Artist & Rigger
-            </p>
-            <div style="margin-top: 15px;">
-                <a href="https://www.linkedin.com/in/valentinprocida" style="color: #ff4136; text-decoration: none; margin: 0 10px;">LinkedIn</a>
-                <a href="https://vimeo.com/valentinprocida" style="color: #ff4136; text-decoration: none; margin: 0 10px;">Vimeo</a>
-                <a href="https://www.valentinprocida.it" style="color: #ff4136; text-decoration: none; margin: 0 10px;">Website</a>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
-}
+// ===== TEMPLATE EMAIL MIGLIORATI =====
 
 function createBookingConfirmationTemplate(bookingData) {
     const date = new Date(bookingData.appointmentDate || new Date());
@@ -347,83 +359,460 @@ function createBookingConfirmationTemplate(bookingData) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Booking Confirmation - Valentin Procida</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f3ede6;">
-    <div style="max-width: 600px; margin: 0 auto; background-color: white;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;">
+    
+    <!-- Main Container -->
+    <div style="max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+        
         <!-- Header -->
-        <div style="background-color: #d73232; padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">✅ Prenotazione Confermata!</h1>
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 50px 40px; text-align: center; position: relative;">
+            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">✅ Prenotazione Confermata</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">La tua consulenza VFX è stata confermata con successo</p>
+            </div>
         </div>
         
-        <!-- Main Content -->
-        <div style="padding: 40px 30px;">
-            <h2 style="color: #0a0a0a; margin: 0 0 20px 0;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
+        <!-- Content -->
+        <div style="padding: 50px 40px;">
             
-            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-                La tua consulenza VFX personalizzata è stata confermata con successo. Ecco i dettagli:
-            </p>
-            
-            <!-- Booking Details -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #d73232; margin: 0 0 20px 0;">📅 Dettagli Appuntamento</h3>
-                <p><strong>Data:</strong> ${formattedDate}</p>
-                <p><strong>Orario:</strong> ${bookingData.appointmentTime || 'Da confermare'}</p>
-                <p><strong>Durata:</strong> 90 minuti</p>
-                <p><strong>Modalità:</strong> Video chiamata (link sarà inviato 24h prima)</p>
+            <!-- Welcome Message -->
+            <div style="text-align: center; margin-bottom: 40px;">
+                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
+                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
+                    La tua consulenza VFX personalizzata è stata confermata. Riceverai il link Google Meet 24 ore prima dell'appuntamento.
+                </p>
             </div>
             
-            <!-- Payment Details -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #d73232; margin: 0 0 20px 0;">💳 Riepilogo Pagamento</h3>
-                <p><strong>Importo pagato:</strong> €${finalAmount}</p>
-                ${bookingData.discount ? `<p><strong>Sconto applicato:</strong> ${bookingData.discount.code}</p>` : ''}
-                <p><strong>ID Transazione:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
+            <!-- Appointment Card -->
+            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #667eea; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -50px; right: -50px; width: 100px; height: 100px; background: rgba(102, 126, 234, 0.1); border-radius: 50%;"></div>
+                <div style="position: relative; z-index: 1;">
+                    <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                        <span style="background: #667eea; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                        Dettagli Appuntamento
+                    </h3>
+                    <div style="display: grid; gap: 15px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                            <span style="color: #6c757d; font-weight: 500;">📅 Data</span>
+                            <span style="color: #2c3e50; font-weight: 600;">${formattedDate}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                            <span style="color: #6c757d; font-weight: 500;">⏰ Orario</span>
+                            <span style="color: #2c3e50; font-weight: 600;">${bookingData.appointmentTime || 'Da confermare'}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                            <span style="color: #6c757d; font-weight: 500;">⏱️ Durata</span>
+                            <span style="color: #2c3e50; font-weight: 600;">90 minuti</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
+                            <span style="color: #6c757d; font-weight: 500;">🎥 Modalità</span>
+                            <span style="color: #2c3e50; font-weight: 600;">Video chiamata Google Meet</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Payment Summary -->
+            <div style="background: white; border: 1px solid #e9ecef; border-radius: 20px; padding: 30px; margin: 30px 0; box-shadow: 0 5px 15px rgba(0,0,0,0.05);">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                    <span style="background: #28a745; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                    Riepilogo Pagamento
+                </h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid #e9ecef;">
+                    <span style="color: #6c757d; font-weight: 500;">💳 Importo pagato</span>
+                    <span style="color: #28a745; font-weight: 700; font-size: 18px;">€${finalAmount}</span>
+                </div>
+                ${bookingData.discount ? `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                    <span style="color: #6c757d; font-weight: 500;">🎟️ Sconto applicato</span>
+                    <span style="color: #667eea; font-weight: 600;">${bookingData.discount.code}</span>
+                </div>` : ''}
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
+                    <span style="color: #6c757d; font-weight: 500;">🔐 ID Transazione</span>
+                    <span style="color: #6c757d; font-family: monospace; font-size: 12px;">${bookingData.paymentIntent || bookingData.paymentId}</span>
+                </div>
             </div>
             
             <!-- What to Expect -->
-            <div style="background-color: #e8f5e8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #065f46; margin: 0 0 20px 0;">🎯 Cosa Aspettarsi</h3>
-                <ul style="color: #047857; line-height: 1.8;">
-                    <li>Analisi completa del tuo portfolio VFX</li>
-                    <li>Roadmap personalizzata per la tua carriera</li>
-                    <li>Strategie concrete per entrare nell'industria</li>
-                    <li>Template CV e email ottimizzati</li>
-                    <li>Risorse e contatti utili</li>
-                    <li>Follow-up con materiali aggiuntivi</li>
-                </ul>
+            <div style="background: linear-gradient(135deg, #e8f4f8 0%, #d1ecf1 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #17a2b8;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                    <span style="background: #17a2b8; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                    Cosa Aspettarsi dalla Consulenza
+                </h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px;">
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📊</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Analisi Portfolio</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Review completa del tuo reel e portfolio VFX</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🗺️</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Roadmap Carriera</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Piano personalizzato per i tuoi obiettivi</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🎯</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Strategie Concrete</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Tattiche pratiche per entrare nell'industria</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📝</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">CV & Email Templates</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Template ottimizzati per l'industria VFX</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">🤝</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Network & Contatti</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Connessioni e opportunità nell'industria</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 12px;">
+                        <span style="background: #17a2b8; color: white; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 2px;">📚</span>
+                        <div>
+                            <strong style="color: #2c3e50; display: block; margin-bottom: 5px;">Risorse Follow-up</strong>
+                            <span style="color: #6c757d; font-size: 14px;">Materiali e guide per continuare il percorso</span>
+                        </div>
+                    </div>
+                </div>
             </div>
             
-            <!-- Preparation -->
-            <div style="background-color: #fff3cd; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #ffc107;">
-                <h3 style="color: #856404; margin: 0 0 20px 0;">📋 Preparazione per la Sessione</h3>
-                <p style="color: #856404; margin-bottom: 15px;">Per massimizzare il valore della nostra consulenza, ti consiglio di:</p>
-                <ul style="color: #856404; line-height: 1.8;">
-                    <li>Preparare il tuo portfolio/reel più recente</li>
-                    <li>Elencare le tue domande specifiche</li>
-                    <li>Pensare ai tuoi obiettivi di carriera</li>
-                    <li>Avere carta e penna per prendere note</li>
-                </ul>
+            <!-- Preparation Tips -->
+            <div style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #ffc107;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                    <span style="background: #ffc107; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                    Come Prepararsi alla Sessione
+                </h3>
+                <p style="color: #856404; margin-bottom: 20px; font-size: 16px;">Per massimizzare il valore della nostra consulenza:</p>
+                <div style="display: grid; gap: 15px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">1</span>
+                        <span style="color: #856404; font-weight: 500;">Prepara il tuo portfolio/reel più recente</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">2</span>
+                        <span style="color: #856404; font-weight: 500;">Scrivi una lista delle tue domande specifiche</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">3</span>
+                        <span style="color: #856404; font-weight: 500;">Rifletti sui tuoi obiettivi di carriera a breve e lungo termine</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">4</span>
+                        <span style="color: #856404; font-weight: 500;">Tieni carta e penna pronti per prendere note</span>
+                    </div>
+                </div>
             </div>
             
-            <div style="text-align: center; margin: 30px 0;">
-                <p style="color: #666;">Ti invierò il link per la video chiamata 24 ore prima dell'appuntamento.</p>
-                <p style="color: #666;">Se hai domande, rispondi pure a questa email!</p>
+            <!-- Next Steps -->
+            <div style="text-align: center; margin: 40px 0; padding: 30px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px;">
+                <h3 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 18px; font-weight: 600;">📧 Prossimi Passi</h3>
+                <p style="color: #6c757d; margin: 0; font-size: 16px; line-height: 1.6;">
+                    Ti invierò il <strong>link Google Meet</strong> 24 ore prima dell'appuntamento.<br>
+                    Se hai domande urgenti, rispondi pure a questa email!
+                </p>
             </div>
             
             <!-- Guarantee -->
-            <div style="background-color: #f3ede6; padding: 25px; border-radius: 8px; text-align: center;">
-                <p style="margin: 0; color: #d73232; font-weight: bold; font-size: 18px;">
-                    🛡️ Garanzia 100% Soddisfazione
-                </p>
-                <p style="margin: 10px 0 0 0; color: #666;">
-                    Se non sei completamente soddisfatto, ti rimborserò entro 48 ore.
+            <div style="background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border-radius: 20px; padding: 30px; text-align: center; margin: 30px 0; border-left: 5px solid #28a745;">
+                <div style="background: white; border-radius: 50%; width: 60px; height: 60px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0,0,0,0.1);">
+                    <span style="font-size: 24px;">🛡️</span>
+                </div>
+                <h3 style="color: #155724; margin: 0 0 10px 0; font-size: 20px; font-weight: 600;">Garanzia 100% Soddisfazione</h3>
+                <p style="color: #155724; margin: 0; font-size: 16px;">
+                    Se non sei completamente soddisfatto della consulenza, ti rimborserò entro 48 ore. La tua soddisfazione è la mia priorità.
                 </p>
             </div>
+            
         </div>
         
         <!-- Footer -->
-        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
-            <p style="margin: 0;">© 2025 Valentin Procida - VFX Consulting</p>
-            <p style="margin: 5px 0 0 0;">Website: <a href="https://www.valentinprocida.it" style="color: #d73232;">www.valentinprocida.it</a></p>
+        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
+            <div style="margin-bottom: 20px;">
+                <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">Valentin Procida</h3>
+                <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 14px;">VFX Artist & Career Consultant</p>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 20px; margin: 20px 0;">
+                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">LinkedIn</a>
+                <a href="https://vimeo.com/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">Vimeo</a>
+                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none; font-size: 14px;">Website</a>
+            </div>
+            <p style="margin: 20px 0 0 0; color: rgba(255,255,255,0.6); font-size: 12px;">
+                © 2025 Valentin Procida - VFX Consulting. Tutti i diritti riservati.
+            </p>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
+    const date = new Date(bookingData.appointmentDate);
+    const formattedDate = date.toLocaleDateString('it-IT', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+    
+    const startTime = meetingInfo.startTime.toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    const endTime = meetingInfo.endTime.toLocaleTimeString('it-IT', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Meet Link - Valentin Procida</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); min-height: 100vh;">
+    
+    <!-- Main Container -->
+    <div style="max-width: 650px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); padding: 50px 40px; text-align: center; position: relative;">
+            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">🎥 Link Video Chiamata Pronto!</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">Il tuo appuntamento VFX è tra 24 ore</p>
+            </div>
+        </div>
+        
+        <!-- Content -->
+        <div style="padding: 50px 40px;">
+            
+            <!-- Welcome Message -->
+            <div style="text-align: center; margin-bottom: 40px;">
+                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">Ciao ${bookingData.customerName}!</h2>
+                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
+                    Il tuo appuntamento è confermato e il link per la video chiamata è pronto. Ci vediamo domani!
+                </p>
+            </div>
+            
+            <!-- Google Meet Link -->
+            <div style="background: linear-gradient(135deg, #1a73e8 0%, #4285f4 100%); border-radius: 20px; padding: 40px; text-align: center; margin: 30px 0; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -30px; right: -30px; width: 80px; height: 80px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
+                <div style="position: absolute; bottom: -40px; left: -40px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
+                <div style="position: relative; z-index: 1;">
+                    <div style="background: white; border-radius: 50%; width: 60px; height: 60px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center; box-shadow: 0 5px 15px rgba(0,0,0,0.2);">
+                        <span style="font-size: 24px;">🔗</span>
+                    </div>
+                    <h3 style="color: white; margin: 0 0 20px 0; font-size: 20px; font-weight: 600;">Link Google Meet</h3>
+                    <a href="${meetingInfo.meetLink}" 
+                       style="background: white; color: #1a73e8; padding: 15px 30px; text-decoration: none; 
+                              border-radius: 50px; font-weight: 600; font-size: 16px; display: inline-block;
+                              box-shadow: 0 5px 15px rgba(0,0,0,0.2); transition: all 0.3s ease;">
+                        🎥 Unisciti alla Video Chiamata
+                    </a>
+                    <p style="color: rgba(255,255,255,0.9); margin: 20px 0 0 0; font-size: 14px;">
+                        Clicca sul link 5-10 minuti prima dell'appuntamento
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Meeting Details -->
+            <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #1a73e8;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                    <span style="background: #1a73e8; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                    Dettagli Appuntamento
+                </h3>
+                <div style="display: grid; gap: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                        <span style="color: #6c757d; font-weight: 500;">📅 Data</span>
+                        <span style="color: #2c3e50; font-weight: 600;">${formattedDate}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                        <span style="color: #6c757d; font-weight: 500;">⏰ Orario</span>
+                        <span style="color: #2c3e50; font-weight: 600;">${startTime} - ${endTime}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid #e9ecef;">
+                        <span style="color: #6c757d; font-weight: 500;">🌍 Fuso Orario</span>
+                        <span style="color: #2c3e50; font-weight: 600;">Europe/Rome (GMT+1)</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 0;">
+                        <span style="color: #6c757d; font-weight: 500;">⏱️ Durata</span>
+                        <span style="color: #2c3e50; font-weight: 600;">90 minuti</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Instructions -->
+            <div style="background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%); border-radius: 20px; padding: 30px; margin: 30px 0; border-left: 5px solid #ffc107;">
+                <h3 style="color: #856404; margin: 0 0 20px 0; font-size: 18px; font-weight: 600; display: flex; align-items: center;">
+                    <span style="background: #ffc107; width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 12px;"></span>
+                    Checklist Pre-Chiamata
+                </h3>
+                <div style="display: grid; gap: 15px;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
+                        <span style="color: #856404; font-weight: 500;">Test audio e video 10 minuti prima</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
+                        <span style="color: #856404; font-weight: 500;">Connessione internet stabile</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
+                        <span style="color: #856404; font-weight: 500;">Ambiente tranquillo e buona illuminazione</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <span style="background: #ffc107; color: white; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0;">✓</span>
+                        <span style="color: #856404; font-weight: 500;">Portfolio, domande e materiali pronti</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Calendar Button -->
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="${meetingInfo.eventLink}" 
+                   style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); color: white; padding: 15px 30px; text-decoration: none; 
+                          border-radius: 50px; font-weight: 600; font-size: 16px; display: inline-block;
+                          box-shadow: 0 5px 15px rgba(40, 167, 69, 0.3);">
+                    📅 Visualizza nel Google Calendar
+                </a>
+                <p style="color: #6c757d; margin: 15px 0 0 0; font-size: 14px;">
+                    L'evento è stato automaticamente aggiunto al tuo calendario con promemoria
+                </p>
+            </div>
+            
+            <!-- Support -->
+            <div style="background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 15px; padding: 25px; text-align: center; margin: 30px 0;">
+                <h4 style="color: #2c3e50; margin: 0 0 10px 0; font-size: 16px;">❓ Problemi Tecnici?</h4>
+                <p style="color: #6c757d; margin: 0; font-size: 14px;">
+                    Se hai difficoltà con il link Google Meet, contattami immediatamente a<br>
+                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" 
+                       style="color: #1a73e8; text-decoration: none; font-weight: 600;">
+                        ${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}
+                    </a>
+                </p>
+            </div>
+            
+        </div>
+        
+        <!-- Footer -->
+        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
+            <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">A presto!</h3>
+            <p style="margin: 0 0 20px 0; color: rgba(255,255,255,0.8); font-size: 16px;">
+                <strong>Valentin Procida</strong><br>
+                VFX Artist & Career Consultant
+            </p>
+            <div style="display: flex; justify-content: center; gap: 20px;">
+                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">LinkedIn</a>
+                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none;">Website</a>
+            </div>
+        </div>
+    </div>
+</body>
+</html>`;
+}
+
+function createDiscountEmailTemplate(name, discountCode, discountAmount) {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Discount Code - Valentin Procida</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); min-height: 100vh;">
+    
+    <div style="max-width: 600px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+        
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); padding: 50px 40px; text-align: center;">
+            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
+                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">🎉 Your Discount Code is Ready!</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">Exclusive ${discountAmount}% discount for VFX consultation</p>
+            </div>
+        </div>
+        
+        <!-- Content -->
+        <div style="padding: 50px 40px;">
+            
+            <div style="text-align: center; margin-bottom: 40px;">
+                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">${name ? `Hi ${name}!` : 'Hello!'}</h2>
+                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
+                    Thank you for your interest in my VFX consultation services! Here's your exclusive discount code:
+                </p>
+            </div>
+            
+            <!-- Discount Code Box -->
+            <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 20px; padding: 40px; text-align: center; margin: 30px 0; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -30px; right: -30px; width: 80px; height: 80px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
+                <div style="position: relative; z-index: 1;">
+                    <p style="color: rgba(255,255,255,0.9); margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your Discount Code</p>
+                    <div style="background: white; color: #ff6b6b; padding: 20px; border-radius: 15px; margin: 20px 0; font-size: 32px; font-weight: bold; letter-spacing: 3px; word-break: break-all;">${discountCode}</div>
+                    <p style="color: white; margin: 10px 0 0 0; font-size: 18px; font-weight: 600;">Save ${discountAmount}% on your VFX consultation</p>
+                </div>
+            </div>
+            
+            <!-- CTA Button -->
+            <div style="text-align: center; margin: 40px 0;">
+                <a href="https://www.valentinprocida.it/buy.html" 
+                   style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 20px 40px; text-decoration: none; 
+                          border-radius: 50px; font-weight: 600; font-size: 18px; display: inline-block;
+                          box-shadow: 0 10px 30px rgba(44, 62, 80, 0.3); letter-spacing: 1px;">
+                    🚀 Book Your Consultation Now
+                </a>
+            </div>
+            
+            <!-- Instructions -->
+            <div style="background: #f8f9fa; border-radius: 15px; padding: 30px; margin: 30px 0;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; text-align: center;">How to Use Your Code</h3>
+                <div style="display: grid; gap: 15px;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</span>
+                        <span style="color: #2c3e50;">Visit the consultation booking page</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</span>
+                        <span style="color: #2c3e50;">Enter code <strong>${discountCode}</strong> at checkout</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</span>
+                        <span style="color: #2c3e50;">Enjoy your ${discountAmount}% discount!</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="text-align: center; padding: 20px; background: #fff3cd; border-radius: 15px; border-left: 5px solid #ffc107;">
+                <p style="color: #856404; margin: 0; font-size: 14px;">
+                    ⏰ <strong>This code expires in 30 days.</strong><br>
+                    Questions? Reply to this email and I'll help you out!
+                </p>
+            </div>
+            
+        </div>
+        
+        <!-- Footer -->
+        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
+            <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">Best regards,</h3>
+            <p style="margin: 0 0 20px 0; color: rgba(255,255,255,0.8); font-size: 16px;">
+                <strong>Valentin Procida</strong><br>
+                VFX Artist & Rigger
+            </p>
+            <div style="display: flex; justify-content: center; gap: 20px;">
+                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">LinkedIn</a>
+                <a href="https://vimeo.com/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">Vimeo</a>
+                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none;">Website</a>
+            </div>
         </div>
     </div>
 </body>
@@ -449,87 +838,124 @@ function createAdminNotificationTemplate(bookingData) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Booking - Admin Notification</title>
 </head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f8f9fa;">
-    <div style="max-width: 600px; margin: 0 auto; background-color: white;">
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa;">
+    <div style="max-width: 600px; margin: 0 auto; background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+        
         <!-- Header -->
-        <div style="background-color: #2c3e50; padding: 30px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 24px;">🎯 Nuova Prenotazione Ricevuta</h1>
+        <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 40px; text-align: center;">
+            <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 600;">🎯 Nuova Prenotazione Ricevuta</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Sistema di prenotazioni VFX</p>
         </div>
         
-        <!-- Main Content -->
-        <div style="padding: 40px 30px;">
-            <h2 style="color: #0a0a0a; margin: 0 0 20px 0;">Ciao Valentin!</h2>
+        <!-- Content -->
+        <div style="padding: 40px;">
             
-            <p style="color: #666; font-size: 16px; line-height: 1.6; margin-bottom: 30px;">
-                Hai ricevuto una nuova prenotazione per una consulenza VFX. Ecco i dettagli:
-            </p>
-            
-            <!-- Customer Details -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #d73232; margin: 0 0 20px 0;">👤 Informazioni Cliente</h3>
-                <p><strong>Nome:</strong> ${bookingData.customerName || bookingData.name}</p>
-                <p><strong>Email:</strong> <a href="mailto:${bookingData.customerEmail || bookingData.email}">${bookingData.customerEmail || bookingData.email}</a></p>
-                <p><strong>Telefono:</strong> <a href="tel:${bookingData.customerPhone || bookingData.phone}">${bookingData.customerPhone || bookingData.phone}</a></p>
-                ${bookingData.company ? `<p><strong>Azienda:</strong> ${bookingData.company}</p>` : ''}
+            <!-- Customer Info -->
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #28a745; padding-bottom: 10px;">👤 Informazioni Cliente</h3>
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
+                    <p style="margin: 0 0 10px 0;"><strong>Nome:</strong> ${bookingData.customerName || bookingData.name}</p>
+                    <p style="margin: 0 0 10px 0;"><strong>Email:</strong> <a href="mailto:${bookingData.customerEmail || bookingData.email}" style="color: #28a745;">${bookingData.customerEmail || bookingData.email}</a></p>
+                    <p style="margin: 0 0 10px 0;"><strong>Telefono:</strong> <a href="tel:${bookingData.customerPhone || bookingData.phone}" style="color: #28a745;">${bookingData.customerPhone || bookingData.phone}</a></p>
+                    ${bookingData.company ? `<p style="margin: 0;"><strong>Azienda:</strong> ${bookingData.company}</p>` : ''}
+                </div>
             </div>
             
             <!-- Appointment Details -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #d73232; margin: 0 0 20px 0;">📅 Dettagli Appuntamento</h3>
-                <p><strong>Data:</strong> ${formattedDate}</p>
-                <p><strong>Orario:</strong> ${bookingData.appointmentTime || 'Non specificato'}</p>
-                <p><strong>Durata:</strong> 90 minuti</p>
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #007bff; padding-bottom: 10px;">📅 Dettagli Appuntamento</h3>
+                <div style="background: #e3f2fd; padding: 20px; border-radius: 10px;">
+                    <p style="margin: 0 0 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
+                    <p style="margin: 0 0 10px 0;"><strong>Orario:</strong> ${bookingData.appointmentTime || 'Non specificato'}</p>
+                    <p style="margin: 0;"><strong>Durata:</strong> 90 minuti</p>
+                </div>
             </div>
             
             <!-- Payment Details -->
-            <div style="background-color: #f8f8f8; padding: 25px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #d73232; margin: 0 0 20px 0;">💰 Dettagli Pagamento</h3>
-                <p><strong>Importo:</strong> €${finalAmount}</p>
-                ${bookingData.discount ? `<p><strong>Sconto:</strong> ${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})</p>` : ''}
-                <p><strong>ID Stripe:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
-                <p><strong>Data pagamento:</strong> ${new Date().toLocaleString('it-IT')}</p>
-            </div>
-            
-            <!-- Action Items -->
-            <div style="background-color: #e8f5e8; padding: 25px; border-radius: 8px; margin: 30px 0; border-left: 4px solid #10b981;">
-                <h3 style="color: #065f46; margin: 0 0 20px 0;">✅ Azioni da Fare</h3>
-                <ul style="color: #047857; line-height: 1.8;">
-                    <li>Aggiungi l'appuntamento al tuo calendario</li>
-                    <li>Prepara il link della video chiamata</li>
-                    <li>Invia promemoria 24h prima</li>
-                    <li>Controlla il portfolio del cliente (se fornito)</li>
-                    <li>Prepara materiali personalizzati</li>
-                </ul>
+            <div style="margin-bottom: 30px;">
+                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #ffc107; padding-bottom: 10px;">💰 Dettagli Pagamento</h3>
+                <div style="background: #fff3cd; padding: 20px; border-radius: 10px;">
+                    <p style="margin: 0 0 10px 0;"><strong>Importo:</strong> €${finalAmount}</p>
+                    ${bookingData.discount ? `<p style="margin: 0 0 10px 0;"><strong>Sconto:</strong> ${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})</p>` : ''}
+                    <p style="margin: 0 0 10px 0;"><strong>ID Stripe:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; font-size: 12px;">${bookingData.paymentIntent || bookingData.paymentId}</code></p>
+                    <p style="margin: 0;"><strong>Data pagamento:</strong> ${new Date().toLocaleString('it-IT')}</p>
+                </div>
             </div>
             
             <!-- Quick Actions -->
-            <div style="text-align: center; margin: 40px 0;">
+            <div style="text-align: center;">
                 ${process.env.GOOGLE_SPREADSHEET_ID ? `
                 <a href="https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}" 
-                   style="background-color: #d73232; color: white; padding: 15px 30px; text-decoration: none; 
-                          border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; margin: 10px;">
-                    📊 Visualizza nel Google Sheets
-                </a>
-                <br>` : ''}
+                   style="background: #28a745; color: white; padding: 12px 25px; text-decoration: none; 
+                          border-radius: 25px; font-weight: 600; display: inline-block; margin: 5px;">
+                    📊 Google Sheets
+                </a>` : ''}
                 <a href="mailto:${bookingData.customerEmail || bookingData.email}" 
-                   style="background-color: #28a745; color: white; padding: 15px 30px; text-decoration: none; 
-                          border-radius: 8px; font-weight: bold; font-size: 16px; display: inline-block; margin: 10px;">
-                    📧 Rispondi al Cliente
+                   style="background: #007bff; color: white; padding: 12px 25px; text-decoration: none; 
+                          border-radius: 25px; font-weight: 600; display: inline-block; margin: 5px;">
+                    📧 Rispondi Cliente
                 </a>
             </div>
+            
         </div>
         
         <!-- Footer -->
-        <div style="background-color: #2c3e50; color: white; padding: 20px; text-align: center;">
-            <p style="margin: 0;">Sistema di Prenotazione VFX Consulting</p>
-            <p style="margin: 5px 0 0 0;">Powered by Valentin Procida</p>
+        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
+            <p style="margin: 0; font-size: 14px;">Sistema di Prenotazione VFX Consulting - Powered by Valentin Procida</p>
         </div>
     </div>
 </body>
 </html>`;
 }
 
-// Funzione per estrarre nome dall'email
+// ===== SCHEDULER & EMAIL FUNCTIONS =====
+function scheduleReminderEmail(bookingData, meetingInfo) {
+    const appointmentDate = new Date(bookingData.appointmentDate);
+    const [hours, minutes] = bookingData.appointmentTime.split(':');
+    
+    const meetingTime = new Date(appointmentDate);
+    meetingTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    
+    const reminderTime = new Date(meetingTime.getTime() - 24 * 60 * 60 * 1000);
+    const now = new Date();
+    
+    if (reminderTime <= now) {
+        console.log('📧 Reminder time in passato, invio immediato');
+        sendMeetingLinkEmail(bookingData, meetingInfo);
+        return;
+    }
+    
+    const timeUntilReminder = reminderTime.getTime() - now.getTime();
+    
+    console.log(`⏰ Email Google Meet programmata per: ${reminderTime.toLocaleString('it-IT')}`);
+    
+    setTimeout(() => {
+        sendMeetingLinkEmail(bookingData, meetingInfo);
+    }, timeUntilReminder);
+}
+
+async function sendMeetingLinkEmail(bookingData, meetingInfo) {
+    if (!transporter) return;
+    
+    try {
+        const mailOptions = {
+            from: {
+                name: 'Valentin Procida',
+                address: process.env.EMAIL_USER
+            },
+            to: bookingData.customerEmail,
+            subject: `🎥 Link Google Meet per la tua consulenza VFX - ${new Date(bookingData.appointmentDate).toLocaleDateString('it-IT')}`,
+            html: createMeetingLinkEmailTemplate(bookingData, meetingInfo)
+        };
+        
+        await transporter.sendMail(mailOptions);
+        console.log(`📧 Email Google Meet inviata a ${bookingData.customerEmail}`);
+        
+    } catch (error) {
+        console.error('❌ Errore invio email Google Meet:', error);
+    }
+}
+
 function extractNameFromEmail(email) {
     const localPart = email.split('@')[0];
     const cleanName = localPart.replace(/[0-9._-]/g, ' ').trim();
@@ -540,7 +966,6 @@ function extractNameFromEmail(email) {
 function generateInitialCodes() {
     console.log('🎫 Generazione automatica codici sconto...');
     
-    // Genera 5 codici generali
     for (let i = 0; i < 5; i++) {
         const code = codeGenerator.createDiscountCode({
             category: 'general',
@@ -554,7 +979,6 @@ function generateInitialCodes() {
         };
     }
 
-    // Genera 3 codici social
     for (let i = 0; i < 3; i++) {
         const code = codeGenerator.createDiscountCode({
             category: 'social',
@@ -568,7 +992,6 @@ function generateInitialCodes() {
         };
     }
 
-    // Genera 4 codici speciali
     for (let i = 0; i < 4; i++) {
         const code = codeGenerator.createDiscountCode({
             category: 'special',
@@ -641,6 +1064,7 @@ app.get('/api/health', (req, res) => {
         totalDiscountCodes: Object.keys(discountCodes).length,
         emailConfigured: !!transporter,
         googleSheetsConfigured: !!sheets,
+        googleCalendarConfigured: !!calendar,
         env: process.env.NODE_ENV || 'development'
     });
 });
@@ -652,69 +1076,7 @@ app.get('/api/config', (req, res) => {
     res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY });
 });
 
-// ===== TEST GOOGLE SHEETS =====
-app.get('/api/test-sheets', async (req, res) => {
-    try {
-        if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
-            return res.status(500).json({ 
-                success: false, 
-                error: 'Google Sheets non configurato',
-                configured: !!sheets,
-                spreadsheetId: !!process.env.GOOGLE_SPREADSHEET_ID
-            });
-        }
-
-        const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-        
-        // Test lettura
-        const readResponse = await sheets.spreadsheets.values.get({
-            spreadsheetId,
-            range: 'Prenotazioni!A1:K1'
-        });
-        
-        // Test scrittura
-        const testValues = [[
-            new Date().toLocaleString('it-IT'),
-            'Test Cliente',
-            'test@email.com',
-            '+39 123 456 7890',
-            'Test Company',
-            new Date().toLocaleDateString('it-IT'),
-            '14:00',
-            '€150.00',
-            'Nessuno',
-            'test_payment_id',
-            'Test'
-        ]];
-        
-        await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: 'Prenotazioni!A:K',
-            valueInputOption: 'USER_ENTERED',
-            resource: { values: testValues }
-        });
-        
-        res.json({
-            success: true,
-            message: 'Google Sheets connection successful!',
-            headers: readResponse.data.values ? readResponse.data.values[0] : [],
-            testRowAdded: true,
-            spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}`
-        });
-        
-    } catch (error) {
-        console.error('Google Sheets test error:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            details: error.toString()
-        });
-    }
-});
-
 // ===== ENDPOINTS EMAIL E CODICI SCONTO =====
-
-// Invia codice sconto via email
 app.post('/api/send-discount-email', async (req, res) => {
     try {
         const { email, name } = req.body;
@@ -727,21 +1089,18 @@ app.post('/api/send-discount-email', async (req, res) => {
             return res.status(500).json({ error: 'Servizio email non configurato' });
         }
         
-        // Validazione email
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
             return res.status(400).json({ error: 'Email non valida' });
         }
         
-        // Genera un nuovo codice sconto automaticamente
         const newCode = codeGenerator.createDiscountCode({
             category: 'welcome',
             description: 'Email Signup Discount - Sconto 10%',
-            maxUses: 1, // Uso singolo per email
-            validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 giorni
+            maxUses: 1,
+            validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
         });
         
-        // Aggiungi al database
         discountCodes[newCode.code] = {
             type: newCode.type,
             value: newCode.value,
@@ -750,14 +1109,12 @@ app.post('/api/send-discount-email', async (req, res) => {
             maxUses: newCode.maxUses,
             usedCount: newCode.usedCount,
             validUntil: newCode.validUntil,
-            assignedTo: email, // Traccia a chi è assegnato
+            assignedTo: email,
             createdAt: new Date()
         };
         
-        // Estrai nome dall'email se non fornito
         const recipientName = name || extractNameFromEmail(email);
         
-        // Configura email
         const mailOptions = {
             from: {
                 name: 'Valentin Procida',
@@ -774,7 +1131,7 @@ Thank you for your interest in my VFX consultation services!
 Your discount code: ${newCode.code}
 This code gives you 10% off your consultation.
 
-Book now: https://www.valentinprocida.it/sales.html
+Book now: https://www.valentinprocida.it/buy.html
 
 Best regards,
 Valentin Procida
@@ -782,7 +1139,6 @@ VFX Artist & Rigger
             `
         };
         
-        // Invia email
         await transporter.sendMail(mailOptions);
         
         console.log(`✅ Codice sconto ${newCode.code} generato e inviato a ${email}`);
@@ -803,39 +1159,6 @@ VFX Artist & Rigger
     }
 });
 
-// Controlla se email già usata per discount
-app.post('/api/check-email-discount', async (req, res) => {
-    try {
-        const { email } = req.body;
-        
-        if (!email) {
-            return res.status(400).json({ error: 'Email richiesta' });
-        }
-        
-        // Cerca codici già assegnati a questa email
-        const existingCodes = Object.entries(discountCodes)
-            .filter(([code, data]) => data.assignedTo === email)
-            .map(([code, data]) => ({
-                code,
-                used: data.usedCount > 0,
-                expired: data.validUntil && new Date() > data.validUntil
-            }));
-        
-        const hasValidCode = existingCodes.some(c => !c.used && !c.expired);
-        
-        res.json({
-            hasExistingCode: existingCodes.length > 0,
-            hasValidCode: hasValidCode,
-            codes: existingCodes
-        });
-        
-    } catch (error) {
-        console.error('Errore controllo email:', error);
-        res.status(500).json({ error: 'Errore nel controllo email' });
-    }
-});
-
-// Valida un codice sconto
 app.post('/api/validate-discount', async (req, res) => {
     try {
         const { code, amount } = req.body;
@@ -858,72 +1181,7 @@ app.post('/api/validate-discount', async (req, res) => {
     }
 });
 
-// ===== ENDPOINTS GENERAZIONE CODICI =====
-
-// Genera nuovo codice manualmente
-app.post('/api/generate-discount-code', async (req, res) => {
-    try {
-        const { category, description, maxUses, validUntil, customCode } = req.body;
-        
-        const newCode = codeGenerator.createDiscountCode({
-            category, description, maxUses: maxUses || 100,
-            validUntil: validUntil ? new Date(validUntil) : null,
-            customCode
-        });
-
-        discountCodes[newCode.code] = {
-            type: newCode.type, value: newCode.value, description: newCode.description,
-            active: newCode.active, maxUses: newCode.maxUses, usedCount: newCode.usedCount,
-            validUntil: newCode.validUntil
-        };
-
-        console.log(`✅ Nuovo codice generato: ${newCode.code}`);
-        res.json({ success: true, code: newCode.code, details: newCode });
-    } catch (error) {
-        console.error('Errore generazione codice:', error);
-        res.status(500).json({ error: 'Errore nella generazione del codice sconto' });
-    }
-});
-
-// Genera campagna di codici
-app.post('/api/generate-campaign', async (req, res) => {
-    try {
-        const { campaignName, categories, codesPerCategory, maxUses, validUntil } = req.body;
-        
-        const campaignCodes = [];
-        const categoriesToUse = categories || ['general'];
-        const codesPerCat = codesPerCategory || 3;
-
-        categoriesToUse.forEach(category => {
-            for (let i = 0; i < codesPerCat; i++) {
-                const newCode = codeGenerator.createDiscountCode({
-                    category,
-                    description: `${campaignName} - ${category} - Sconto 10%`,
-                    maxUses: maxUses || 50,
-                    validUntil: validUntil ? new Date(validUntil) : null
-                });
-
-                discountCodes[newCode.code] = {
-                    type: newCode.type, value: newCode.value, description: newCode.description,
-                    active: newCode.active, maxUses: newCode.maxUses, usedCount: newCode.usedCount,
-                    validUntil: newCode.validUntil
-                };
-
-                campaignCodes.push({ code: newCode.code, category, description: newCode.description });
-            }
-        });
-
-        console.log(`🚀 Campagna "${campaignName}" creata con ${campaignCodes.length} codici`);
-        res.json({ success: true, campaign: campaignName, codes: campaignCodes });
-    } catch (error) {
-        console.error('Errore generazione campagna:', error);
-        res.status(500).json({ error: 'Errore nella generazione della campagna' });
-    }
-});
-
 // ===== ENDPOINTS STRIPE =====
-
-// Crea Payment Intent
 app.post('/api/create-payment-intent', async (req, res) => {
     try {
         const { email, name, phone, company, appointmentDate, appointmentTime, discountCode } = req.body;
@@ -971,41 +1229,14 @@ app.post('/api/create-payment-intent', async (req, res) => {
     }
 });
 
-// Verifica pagamento
-app.post('/api/verify-payment', async (req, res) => {
-    try {
-        const { paymentIntentId } = req.body;
-        if (!paymentIntentId) return res.status(400).json({ error: 'Payment Intent ID richiesto' });
-        
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-        
-        if (paymentIntent.status === 'succeeded') {
-            res.json({
-                success: true, email: paymentIntent.metadata.email, name: paymentIntent.metadata.name,
-                amount: paymentIntent.amount, currency: paymentIntent.currency, paymentId: paymentIntent.id,
-                discountCode: paymentIntent.metadata.discountCode || null,
-                discountAmount: paymentIntent.metadata.discountAmount || '0',
-                originalAmount: paymentIntent.metadata.originalAmount || paymentIntent.amount.toString(),
-                receipt_url: paymentIntent.charges.data[0]?.receipt_url
-            });
-        } else {
-            res.json({ success: false, status: paymentIntent.status, paymentId: paymentIntent.id });
-        }
-    } catch (error) {
-        console.error('Errore verifica pagamento:', error);
-        res.status(500).json({ error: 'Errore nella verifica del pagamento', details: error.message });
-    }
-});
-
-// Conferma prenotazione (invia email e salva su Google Sheets)
 app.post('/api/booking-confirmation', async (req, res) => {
     try {
         const bookingData = req.body;
         
-        // Salva su Google Sheets
         await saveBookingToGoogleSheets(bookingData);
         
-        // Invia email di conferma al cliente
+        const meetingInfo = await createGoogleMeetEvent(bookingData);
+        
         if (transporter) {
             const customerMailOptions = {
                 from: {
@@ -1019,9 +1250,12 @@ app.post('/api/booking-confirmation', async (req, res) => {
             
             await transporter.sendMail(customerMailOptions);
             console.log('📧 Email di conferma inviata al cliente');
+            
+            if (meetingInfo) {
+                scheduleReminderEmail(bookingData, meetingInfo);
+            }
         }
         
-        // Invia notifica admin
         if (transporter && process.env.ADMIN_EMAIL) {
             const adminMailOptions = {
                 from: {
@@ -1074,12 +1308,9 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 email: paymentIntent.metadata.email,
                 amount: paymentIntent.amount,
                 currency: paymentIntent.currency,
-                discountCode: paymentIntent.metadata.discountCode || 'Nessuno',
-                discountAmount: paymentIntent.metadata.discountAmount || '0',
-                originalAmount: paymentIntent.metadata.originalAmount || paymentIntent.amount
+                discountCode: paymentIntent.metadata.discountCode || 'Nessuno'
             });
             
-            // Marca il codice sconto come usato
             if (paymentIntent.metadata.discountCode) {
                 const discount = discountCodes[paymentIntent.metadata.discountCode.toUpperCase()];
                 if (discount) {
@@ -1091,7 +1322,6 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 console.log(`🎉 Cliente ha risparmiato €${savings.toFixed(2)} con il codice ${paymentIntent.metadata.discountCode}`);
             }
             
-            // Salva automaticamente su Google Sheets e invia email
             const bookingData = {
                 customerName: paymentIntent.metadata.name,
                 customerEmail: paymentIntent.metadata.email,
@@ -1108,13 +1338,12 @@ app.post('/api/stripe-webhook', async (req, res) => {
                 timestamp: new Date().toISOString()
             };
             
-            // Salva automaticamente
             await saveBookingToGoogleSheets(bookingData);
             
-            // Invia email automaticamente
+            const meetingInfo = await createGoogleMeetEvent(bookingData);
+            
             if (transporter) {
                 try {
-                    // Email cliente
                     const customerMailOptions = {
                         from: {
                             name: 'Valentin Procida',
@@ -1128,7 +1357,10 @@ app.post('/api/stripe-webhook', async (req, res) => {
                     await transporter.sendMail(customerMailOptions);
                     console.log('📧 Email di conferma automatica inviata al cliente');
                     
-                    // Email admin
+                    if (meetingInfo) {
+                        scheduleReminderEmail(bookingData, meetingInfo);
+                    }
+                    
                     if (process.env.ADMIN_EMAIL) {
                         const adminMailOptions = {
                             from: {
@@ -1158,10 +1390,6 @@ app.post('/api/stripe-webhook', async (req, res) => {
             });
             break;
             
-        case 'payment_method.attached':
-            console.log('💳 Metodo di pagamento allegato');
-            break;
-            
         default:
             console.log(`Evento non gestito: ${event.type}`);
     }
@@ -1169,9 +1397,7 @@ app.post('/api/stripe-webhook', async (req, res) => {
     res.json({received: true});
 });
 
-// ===== ENDPOINTS GESTIONE CODICI =====
-
-// Statistiche codici sconto
+// ===== ALTRI ENDPOINTS =====
 app.get('/api/discount-stats', (req, res) => {
     const stats = Object.entries(discountCodes).map(([code, data]) => ({
         code, description: data.description, type: data.type, value: data.value,
@@ -1196,173 +1422,18 @@ app.get('/api/discount-stats', (req, res) => {
     });
 });
 
-// Modifica codice sconto
-app.patch('/api/discount-code/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        const { active, maxUses, validUntil } = req.body;
-        
-        const upperCode = code.toUpperCase();
-        if (!discountCodes[upperCode]) {
-            return res.status(404).json({ error: 'Codice non trovato' });
-        }
-        
-        if (typeof active === 'boolean') {
-            discountCodes[upperCode].active = active;
-        }
-        
-        if (maxUses !== undefined) {
-            discountCodes[upperCode].maxUses = maxUses;
-        }
-        
-        if (validUntil) {
-            discountCodes[upperCode].validUntil = new Date(validUntil);
-        }
-        
-        console.log(`🔄 Codice ${upperCode} aggiornato`);
-        res.json({ 
-            success: true, 
-            code: upperCode, 
-            updated: discountCodes[upperCode] 
-        });
-    } catch (error) {
-        console.error('Errore aggiornamento codice:', error);
-        res.status(500).json({ error: 'Errore nell\'aggiornamento del codice' });
-    }
-});
-
-// Elimina codice sconto
-app.delete('/api/discount-code/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        const upperCode = code.toUpperCase();
-        
-        if (!discountCodes[upperCode]) {
-            return res.status(404).json({ error: 'Codice non trovato' });
-        }
-        
-        delete discountCodes[upperCode];
-        console.log(`🗑️ Codice ${upperCode} eliminato`);
-        res.json({ success: true, message: `Codice ${upperCode} eliminato` });
-    } catch (error) {
-        console.error('Errore eliminazione codice:', error);
-        res.status(500).json({ error: 'Errore nell\'eliminazione del codice' });
-    }
-});
-
-// Categorie disponibili
-app.get('/api/discount-categories', (req, res) => {
-    res.json({
-        categories: Object.keys(codeGenerator.prefixes),
-        descriptions: {
-            general: 'Codici generali per tutti',
-            seasonal: 'Codici stagionali',
-            target: 'Codici per gruppi specifici',
-            social: 'Codici per social media',
-            events: 'Codici per eventi',
-            special: 'Offerte speciali',
-            welcome: 'Codici di benvenuto'
-        }
-    });
-});
-
-// Cleanup codici scaduti
-app.post('/api/cleanup-expired-codes', (req, res) => {
-    try {
-        let deactivatedCount = 0;
-        const now = new Date();
-        
-        Object.entries(discountCodes).forEach(([code, data]) => {
-            if (data.validUntil && now > data.validUntil && data.active) {
-                data.active = false;
-                deactivatedCount++;
-            }
-        });
-        
-        console.log(`🧹 Cleanup completato: ${deactivatedCount} codici scaduti disattivati`);
-        res.json({ 
-            success: true, 
-            deactivatedCount,
-            message: `${deactivatedCount} codici scaduti disattivati` 
-        });
-    } catch (error) {
-        console.error('Errore cleanup:', error);
-        res.status(500).json({ error: 'Errore nel cleanup dei codici' });
-    }
-});
-
-// ===== ENDPOINT TEST EMAIL =====
-app.post('/api/test-email', async (req, res) => {
-    try {
-        if (!transporter) {
-            return res.status(500).json({ error: 'Servizio email non configurato' });
-        }
-        
-        const { email } = req.body;
-        if (!email) {
-            return res.status(400).json({ error: 'Email richiesta per il test' });
-        }
-        
-        const testMailOptions = {
-            from: {
-                name: 'Valentin Procida',
-                address: process.env.EMAIL_USER
-            },
-            to: email,
-            subject: '✅ Test Email Configuration - Valentin Procida',
-            html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #d73232;">🎉 Email Test Successful!</h2>
-                    <p>If you're reading this, your email configuration is working correctly.</p>
-                    <div style="background: #f8f8f8; padding: 15px; border-radius: 8px; margin: 20px 0;">
-                        <p><strong>Server Status:</strong></p>
-                        <ul>
-                            <li>✅ Email transporter: Working</li>
-                            <li>✅ Google Sheets: ${!!sheets ? 'Connected' : 'Not configured'}</li>
-                            <li>✅ Stripe: ${!!process.env.STRIPE_SECRET_KEY ? 'Configured' : 'Not configured'}</li>
-                        </ul>
-                        <p><strong>Server time:</strong> ${new Date().toISOString()}</p>
-                    </div>
-                    <p style="color: #666;">This is an automated test message from your VFX booking system.</p>
-                </div>
-            `,
-            text: `Email Test Successful! Server time: ${new Date().toISOString()}`
-        };
-        
-        await transporter.sendMail(testMailOptions);
-        console.log(`📧 Email di test inviata a ${email}`);
-        
-        res.json({ success: true, message: 'Test email sent successfully' });
-        
-    } catch (error) {
-        console.error('Errore test email:', error);
-        res.status(500).json({ error: 'Errore nel test email', details: error.message });
-    }
-});
-
-// ===== CATCH-ALL E ERROR HANDLING =====
 app.use(/^\/api\/.*/, (req, res) => {
     res.status(404).json({ 
         error: 'API endpoint not found',
         path: req.path,
         availableEndpoints: [
             'GET /api/health',
-            'GET /api/config', 
-            'GET /api/test-sheets',
+            'GET /api/config',
             'POST /api/send-discount-email',
-            'POST /api/check-email-discount',
             'POST /api/validate-discount',
             'POST /api/create-payment-intent',
-            'POST /api/verify-payment',
             'POST /api/booking-confirmation',
-            'GET /api/discount-stats',
-            'POST /api/generate-discount-code',
-            'POST /api/generate-campaign',
-            'PATCH /api/discount-code/:code',
-            'DELETE /api/discount-code/:code',
-            'GET /api/discount-categories',
-            'POST /api/cleanup-expired-codes',
-            'POST /api/test-email'
+            'GET /api/discount-stats'
         ]
     });
 });
@@ -1370,13 +1441,9 @@ app.use(/^\/api\/.*/, (req, res) => {
 // ===== INIZIALIZZAZIONE =====
 async function startServer() {
     try {
-        // Inizializza Google Sheets
-        await initGoogleSheets();
-        
-        // Genera codici iniziali
+        await initGoogleServices();
         generateInitialCodes();
 
-        // Test configurazione email all'avvio
         if (transporter) {
             transporter.verify((error, success) => {
                 if (error) {
@@ -1387,7 +1454,6 @@ async function startServer() {
             });
         }
 
-        // Cleanup automatico ogni ora
         setInterval(() => {
             let deactivatedCount = 0;
             const now = new Date();
@@ -1402,22 +1468,18 @@ async function startServer() {
             if (deactivatedCount > 0) {
                 console.log(`🧹 Cleanup automatico: ${deactivatedCount} codici scaduti disattivati`);
             }
-        }, 60 * 60 * 1000); // Ogni ora
+        }, 60 * 60 * 1000);
 
-        // Avvia server
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`✅ Server running on port ${PORT}`);
             console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`🔑 Stripe configured: ${!!process.env.STRIPE_SECRET_KEY}`);
-            console.log(`🔑 Stripe publishable key configured: ${!!process.env.STRIPE_PUBLISHABLE_KEY}`);
-            console.log(`🪝 Webhook secret configured: ${!!process.env.STRIPE_WEBHOOK_SECRET}`);
             console.log(`📧 Email configured: ${!!transporter}`);
             console.log(`📊 Google Sheets configured: ${!!sheets}`);
+            console.log(`📅 Google Calendar configured: ${!!calendar}`);
             console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
-            console.log(`🤖 Generatore automatico attivo`);
             console.log(`🌐 Server ready at: http://localhost:${PORT}`);
             
-            // Mostra alcuni codici di esempio
             console.log('\n🎯 Codici sconto disponibili:');
             Object.entries(discountCodes).slice(0, 5).forEach(([code, data]) => {
                 console.log(`- ${code}: ${data.description}`);
@@ -1431,7 +1493,6 @@ async function startServer() {
     }
 }
 
-// ===== GESTIONE ERRORI =====
 process.on('unhandledRejection', (err) => {
     console.error('Unhandled Promise Rejection:', err);
 });
@@ -1441,5 +1502,4 @@ process.on('uncaughtException', (err) => {
     process.exit(1);
 });
 
-// Avvia il server
 startServer();
