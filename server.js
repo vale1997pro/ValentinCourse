@@ -76,6 +76,8 @@ async function testGoogleSheetsConnection() {
 }
 
 // ===== GOOGLE MEET FUNCTIONS =====
+// PRIMO TEST: Sostituisci createGoogleMeetEvent per testare senza Google Meet
+
 async function createGoogleMeetEvent(bookingData) {
     console.log('📅 createGoogleMeetEvent chiamata con:', {
         calendar: !!calendar,
@@ -104,13 +106,14 @@ async function createGoogleMeetEvent(bookingData) {
         const endTime = new Date(startTime);
         endTime.setMinutes(endTime.getMinutes() + 90);
 
-        console.log('📅 Creazione evento Google Calendar:', {
+        console.log('📅 Creazione evento Google Calendar (SENZA MEET - TEST):', {
             startTime: startTime.toISOString(),
             endTime: endTime.toISOString(),
             customerName: bookingData.customerName,
             customerEmail: bookingData.customerEmail
         });
 
+        // EVENTO SEMPLICE SENZA GOOGLE MEET (per testare)
         const event = {
             summary: `VFX Consultation - ${bookingData.customerName}`,
             description: `
@@ -125,13 +128,7 @@ Durata: 90 minuti
 Pagamento: €${(bookingData.amount / 100).toFixed(2)}
 ID Transazione: ${bookingData.paymentIntent}
 
-Argomenti da discutere:
-- Analisi portfolio VFX
-- Roadmap carriera personalizzata
-- Strategie industria VFX
-- CV e networking tips
-
-NOTA: Cliente da contattare separatamente per il link Google Meet
+NOTA: Evento di test - Google Meet da aggiungere manualmente
             `.trim(),
             start: {
                 dateTime: startTime.toISOString(),
@@ -141,49 +138,39 @@ NOTA: Cliente da contattare separatamente per il link Google Meet
                 dateTime: endTime.toISOString(),
                 timeZone: 'Europe/Rome',
             },
-            // RIMOSSO: attendees - causa problemi con Service Account
-            conferenceData: {
-                createRequest: {
-                    requestId: `meet-${Date.now()}`,
-                    conferenceSolutionKey: {
-                        type: 'hangoutsMeet'
-                    }
-                }
-            },
+            // RIMOSSO conferenceData per il test
             reminders: {
                 useDefault: false,
                 overrides: [
                     { method: 'email', minutes: 24 * 60 },
-                    { method: 'email', minutes: 60 },
                     { method: 'popup', minutes: 10 }
                 ]
             }
         };
 
-        console.log('📅 Invio richiesta a Google Calendar API...');
+        console.log('📅 Invio richiesta a Google Calendar API (evento semplice)...');
 
         const createdEvent = await calendar.events.insert({
             calendarId: process.env.GOOGLE_CALENDAR_ID,
             resource: event,
-            conferenceDataVersion: 1,
-            sendUpdates: 'none' // Non inviare aggiornamenti automatici
+            sendUpdates: 'none'
         });
 
-        console.log('✅ Evento Google Calendar creato con successo:', {
+        console.log('✅ Evento Google Calendar creato con successo (senza Meet):', {
             eventId: createdEvent.data.id,
-            meetLink: createdEvent.data.hangoutLink,
             eventLink: createdEvent.data.htmlLink
         });
 
+        // Simula meetingInfo anche senza Google Meet per non rompere il resto del codice
         const meetingInfo = {
             eventId: createdEvent.data.id,
-            meetLink: createdEvent.data.hangoutLink,
+            meetLink: null, // Nessun link Meet per ora
             eventLink: createdEvent.data.htmlLink,
             startTime: startTime,
             endTime: endTime
         };
 
-        console.log('🔗 Google Meet Link generato:', meetingInfo.meetLink);
+        console.log('📅 Evento creato, ma senza Google Meet link');
         
         return meetingInfo;
 
@@ -196,6 +183,7 @@ NOTA: Cliente da contattare separatamente per il link Google Meet
         return null;
     }
 }
+
 // ===== FUNZIONI GOOGLE SHEETS =====
 async function saveBookingToGoogleSheets(bookingData) {
     if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
