@@ -588,7 +588,6 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
 </body>
 </html>`;
 }
-}
 
 function createDiscountEmailTemplate(name, discountCode, discountAmount) {
     return `
