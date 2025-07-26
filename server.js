@@ -1,4 +1,4 @@
-// server.js - Sistema completo con Google Meet, email eleganti e Google Sheets
+// server.js - Sistema completo con Google Meet, email eleganti, Google Sheets e Keep-Alive per Render
 require('dotenv').config();
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -9,6 +9,49 @@ const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ===== KEEP-ALIVE SYSTEM FOR RENDER =====
+const RENDER_URL = process.env.RENDER_URL || `http://localhost:${PORT}`;
+
+// Ping endpoint per keep-alive
+app.get('/ping', (req, res) => {
+    res.status(200).json({
+        status: 'pong',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        memory: process.memoryUsage()
+    });
+});
+
+// Keep-alive function
+async function keepServerAlive() {
+    if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
+        try {
+            const response = await fetch(`${RENDER_URL}/ping`);
+            const data = await response.json();
+            console.log(`🏓 Keep-alive ping successful: ${data.status} at ${data.timestamp}`);
+        } catch (error) {
+            console.error('❌ Keep-alive ping failed:', error.message);
+        }
+    }
+}
+
+// Cron job per keep-alive ogni 12 minuti (720 secondi)
+if (process.env.NODE_ENV === 'production') {
+    console.log('🔄 Configurando keep-alive per Render (ogni 12 minuti)...');
+
+    // Ogni 12 minuti
+    cron.schedule('*/12 * * * *', () => {
+        console.log('🏓 Eseguendo keep-alive ping...');
+        keepServerAlive();
+    });
+
+    // Primo ping dopo 1 minuto dall'avvio
+    setTimeout(() => {
+        console.log('🏓 Primo keep-alive ping...');
+        keepServerAlive();
+    }, 60000);
+}
 
 // ===== GOOGLE SHEETS & CALENDAR SETUP =====
 let sheets;
@@ -76,8 +119,6 @@ async function testGoogleSheetsConnection() {
 }
 
 // ===== GOOGLE MEET FUNCTIONS =====
-// ===== SOSTITUISCI QUESTA FUNZIONE NEL TUO SERVER.JS =====
-
 async function createGoogleMeetEvent(bookingData) {
     console.log('📅 createGoogleMeetEvent chiamata con:', {
         calendar: !!calendar,
@@ -360,7 +401,7 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransport(emailConfig);
+    transporter = nodemailer.createTransporter(emailConfig);
     console.log('📧 Email transporter configurato');
 } else {
     console.warn('⚠️ Configurazione email mancante - le email non saranno inviate');
@@ -943,7 +984,10 @@ app.get('/api/health', (req, res) => {
         emailConfigured: !!transporter,
         googleSheetsConfigured: !!sheets,
         googleCalendarConfigured: !!calendar,
-        env: process.env.NODE_ENV || 'development'
+        env: process.env.NODE_ENV || 'development',
+        keepAliveActive: process.env.NODE_ENV === 'production',
+        renderUrl: process.env.RENDER_URL,
+        uptime: `${Math.floor(process.uptime())} seconds`
     });
 });
 
@@ -1412,8 +1456,7 @@ app.use(/^\/api\/.*/, (req, res) => {
         availableEndpoints: [
             'GET /api/health',
             'GET /api/config',
-            'GET /api/test-sheets',
-            'GET /api/test-calendar',
+            'GET /ping',
             'POST /api/test-google-meet-email',
             'POST /api/force-google-meet-email',
             'POST /api/send-discount-email',
@@ -1421,7 +1464,7 @@ app.use(/^\/api\/.*/, (req, res) => {
             'POST /api/create-payment-intent',
             'POST /api/booking-confirmation',
             'GET /api/discount-stats',
-            'POST /api/test-email'
+            'POST /api/stripe-webhook'
         ]
     });
 });
@@ -1466,6 +1509,7 @@ async function startServer() {
             console.log(`📊 Google Sheets configured: ${!!sheets}`);
             console.log(`📅 Google Calendar configured: ${!!calendar}`);
             console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
+            console.log(`🏓 Keep-alive attivo: ${process.env.NODE_ENV === 'production'}`);
             console.log(`🌐 Server ready at: http://localhost:${PORT}`);
 
             console.log('\n🎯 Codici sconto disponibili:');
@@ -1473,6 +1517,11 @@ async function startServer() {
                 console.log(`- ${code}: ${data.description}`);
             });
             console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
+
+            if (process.env.NODE_ENV === 'production') {
+                console.log('🏓 Keep-alive sistema attivo per Render (ping ogni 12 minuti)');
+                console.log(`🔗 Render URL configurato: ${process.env.RENDER_URL || 'Non configurato'}`);
+            }
         });
 
     } catch (error) {
