@@ -401,10 +401,8 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransporter(emailConfig);
+    transporter = nodemailer.createTransporter(emailConfig); // ❌ ERRORE QUI
     console.log('📧 Email transporter configurato');
-} else {
-    console.warn('⚠️ Configurazione email mancante - le email non saranno inviate');
 }
 
 // ===== TEMPLATE EMAIL MIGLIORATI =====
