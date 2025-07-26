@@ -401,7 +401,7 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransporter(emailConfig); // ❌ ERRORE QUI
+    transporter = nodemailer.createTransport(emailConfig); // ✅ CORRETTO
     console.log('📧 Email transporter configurato');
 }
 
