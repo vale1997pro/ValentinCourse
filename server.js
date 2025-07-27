@@ -73,7 +73,7 @@ if (process.env.NODE_ENV === 'production') {
             timezone: "Europe/Rome"
         });
         
-        console.log(`✅ Cron job scheduled successfully. Next execution: ${scheduledTask.nextDate()}`);
+        console.log(`✅ Cron job scheduled successfully with pattern: ${cronExpression}`);
         
         // Primo ping dopo 1 minuto dall'avvio
         setTimeout(() => {
@@ -1629,15 +1629,20 @@ async function startServer() {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 
                 if (!process.env.RENDER_URL) {
-                    console.log('⚠️ WARNING: RENDER_URL not configured! Keep-alive will not work.');
-                    console.log('   Set RENDER_URL environment variable to your Render app URL');
+                    console.log('⚠️  WARNING: RENDER_URL not configured! Keep-alive will not work.');
+                    console.log('   🔧 Set RENDER_URL environment variable to your Render app URL');
+                    console.log('   📝 Example: https://your-app-name.onrender.com');
+                    console.log('   ⚙️  Go to Render Dashboard > Environment > Add Environment Variable:');
+                    console.log('      Variable: RENDER_URL');
+                    console.log('      Value: https://your-app-name.onrender.com');
+                    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                } else {
+                    // Test immediato del keep-alive solo se RENDER_URL è configurato
+                    setTimeout(() => {
+                        console.log('🧪 Testing keep-alive system in 5 seconds...');
+                        keepServerAlive();
+                    }, 5000);
                 }
-                
-                // Test immediato del keep-alive
-                setTimeout(() => {
-                    console.log('🧪 Testing keep-alive system in 5 seconds...');
-                    keepServerAlive();
-                }, 5000);
             }
         });
 
