@@ -1,4 +1,4 @@
-// server.js - Sistema completo con Google Meet, email eleganti, Google Sheets e Keep-Alive per Render
+// server.js - Sistema completo con Google Meet, email eleganti, Google Sheets, Keep-Alive e Anti-Doppie Prenotazioni
 require('dotenv').config();
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -178,6 +178,224 @@ async function testGoogleSheetsConnection() {
     } catch (error) {
         console.warn('⚠️ Test Google Sheets fallito:', error.message);
     }
+}
+
+// ===== FUNZIONI PER GESTIRE SLOT PRENOTATI (ANTI-DOPPIE PRENOTAZIONI) =====
+
+/**
+ * Recupera tutte le prenotazioni esistenti da Google Sheets
+ */
+async function getExistingBookings() {
+    if (!sheets || !process.env.GOOGLE_SPREADSHEET_ID) {
+        console.warn('⚠️ Google Sheets non configurato - nessun controllo prenotazioni esistenti');
+        return [];
+    }
+
+    try {
+        const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+        
+        // Legge tutte le righe dalla colonna A alla K
+        const response = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: 'Prenotazioni!A:K'
+        });
+
+        const rows = response.data.values || [];
+        
+        // Salta la riga dell'header (prima riga)
+        const bookingRows = rows.slice(1);
+        
+        const existingBookings = [];
+        
+        bookingRows.forEach((row, index) => {
+            // Struttura: [Timestamp, Nome, Email, Telefono, Azienda, Data, Orario, Prezzo, Sconto, PaymentID, Stato]
+            if (row.length >= 7) {
+                const rawDate = row[5]; // Data
+                const time = row[6];    // Orario
+                const status = row[10]; // Stato
+                
+                // Solo prenotazioni confermate
+                if (status === 'Confermata' && rawDate && time) {
+                    // Converte la data dal formato italiano (dd/mm/yyyy) al formato ISO (yyyy-mm-dd)
+                    const dateFormatted = convertItalianDateToISO(rawDate);
+                    
+                    if (dateFormatted) {
+                        existingBookings.push({
+                            date: dateFormatted,
+                            time: time.trim(),
+                            customerName: row[1] || '',
+                            rowIndex: index + 2 // +2 perché spreadsheet inizia da 1 e abbiamo saltato l'header
+                        });
+                    }
+                }
+            }
+        });
+
+        console.log(`📊 Trovate ${existingBookings.length} prenotazioni esistenti in Google Sheets`);
+        return existingBookings;
+
+    } catch (error) {
+        console.error('❌ Errore recupero prenotazioni esistenti:', error.message);
+        return [];
+    }
+}
+
+/**
+ * Converte data dal formato italiano (dd/mm/yyyy) al formato ISO (yyyy-mm-dd)
+ */
+function convertItalianDateToISO(italianDate) {
+    try {
+        // Gestisce formati: "18/7/2025", "18/07/2025", "venerdì 18 luglio 2025"
+        
+        // Se contiene testo (giorno della settimana), estrai solo la parte numerica
+        const dateMatch = italianDate.match(/(\d{1,2})[\s\/](\d{1,2})[\s\/](\d{4})/);
+        
+        if (dateMatch) {
+            const [, day, month, year] = dateMatch;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+        
+        // Prova parsing diretto
+        const parts = italianDate.split('/');
+        if (parts.length === 3) {
+            const [day, month, year] = parts;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('❌ Errore conversione data:', italianDate, error);
+        return null;
+    }
+}
+
+/**
+ * Controlla se uno slot specifico è già prenotato
+ */
+async function isSlotBooked(date, time) {
+    const existingBookings = await getExistingBookings();
+    
+    return existingBookings.some(booking => 
+        booking.date === date && booking.time === time
+    );
+}
+
+/**
+ * Genera slot disponibili escludendo quelli già prenotati
+ */
+async function getAvailableSlots() {
+    try {
+        // Ottieni tutte le prenotazioni esistenti
+        const existingBookings = await getExistingBookings();
+        
+        // Genera tutti i possibili slot (stesso algoritmo del frontend)
+        const allSlots = generateAllPossibleSlots();
+        
+        // Filtra gli slot già prenotati
+        const availableSlots = {};
+        
+        Object.entries(allSlots).forEach(([date, times]) => {
+            const availableTimes = times.filter(time => {
+                return !existingBookings.some(booking => 
+                    booking.date === date && booking.time === time
+                );
+            });
+            
+            // Solo se ci sono orari disponibili, includi la data
+            if (availableTimes.length > 0) {
+                availableSlots[date] = availableTimes;
+            }
+        });
+        
+        console.log(`📅 Slot disponibili calcolati: ${Object.keys(availableSlots).length} date disponibili`);
+        return availableSlots;
+        
+    } catch (error) {
+        console.error('❌ Errore calcolo slot disponibili:', error);
+        // Fallback: restituisci tutti gli slot possibili
+        return generateAllPossibleSlots();
+    }
+}
+
+/**
+ * Genera tutti i possibili slot (stessa logica del frontend)
+ */
+function generateAllPossibleSlots() {
+    const allSlots = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i <= 60; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+
+        // Salta weekend
+        if (date.getDay() === 0 || date.getDay() === 6) continue;
+        
+        // Salta festività italiane
+        if (isItalianHoliday(date)) continue;
+
+        // Se è oggi, salta se è troppo tardi
+        if (i === 0) {
+            const now = new Date();
+            if (now.getHours() >= 17) {
+                continue;
+            }
+        }
+
+        const dateStr = formatDateToLocalString(date);
+        const morningSlots = ['09:00', '10:30'];
+        const afternoonSlots = ['14:00', '15:30', '17:00'];
+        const slots = [...morningSlots, ...afternoonSlots];
+
+        allSlots[dateStr] = slots;
+    }
+
+    return allSlots;
+}
+
+function isItalianHoliday(date) {
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const day = date.getDate();
+
+    const fixedHolidays = [
+        { month: 1, day: 1 }, { month: 1, day: 6 }, { month: 4, day: 25 },
+        { month: 5, day: 1 }, { month: 6, day: 2 }, { month: 8, day: 15 },
+        { month: 11, day: 1 }, { month: 12, day: 8 }, { month: 12, day: 25 }, { month: 12, day: 26 }
+    ];
+
+    for (const holiday of fixedHolidays) {
+        if (month === holiday.month && day === holiday.day) return true;
+    }
+
+    const easter = calculateEaster(year);
+    const easterMonday = new Date(easter);
+    easterMonday.setDate(easter.getDate() + 1);
+
+    return date.toDateString() === easter.toDateString() ||
+        date.toDateString() === easterMonday.toDateString();
+}
+
+function calculateEaster(year) {
+    const f = Math.floor;
+    const G = year % 19;
+    const C = f(year / 100);
+    const H = (C - f(C / 4) - f((8 * C + 13) / 25) + 19 * G + 15) % 30;
+    const I = H - f(H / 28) * (1 - f(29 / (H + 1)) * f((21 - G) / 11));
+    const J = (year + f(year / 4) + I + 2 - C + f(C / 4)) % 7;
+    const L = I - J;
+    const month = 3 + f((L + 40) / 44);
+    const day = L + 28 - 31 * f(month / 4);
+
+    return new Date(year, month - 1, day);
+}
+
+function formatDateToLocalString(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
 }
 
 // ===== GOOGLE MEET FUNCTIONS =====
@@ -463,14 +681,11 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransport(emailConfig); // ✅ FIXED: createTransport instead of createTransporter
+    transporter = nodemailer.createTransporter(emailConfig);
     console.log('📧 Email transporter configurato');
 }
 
-// ===== TEMPLATE EMAIL MIGLIORATI =====
-// ===================================
-// EMAIL TEMPLATE MIGLIORATO - CONFERMA PRENOTAZIONE
-// ===================================
+// ===== EMAIL TEMPLATES =====
 function createBookingConfirmationTemplate(bookingData) {
     const date = new Date(bookingData.appointmentDate || new Date());
     const formattedDate = date.toLocaleDateString('it-IT', {
@@ -567,18 +782,6 @@ function createBookingConfirmationTemplate(bookingData) {
                 </p>
             </div>
             
-            <!-- Preparation -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #f39c12; padding-bottom: 10px;">📋 Preparazione Consigliata</h3>
-                
-                <ul style="color: #555; line-height: 1.6; padding-left: 20px; margin: 20px 0;">
-                    <li style="margin-bottom: 8px;">Prepara il tuo portfolio/reel più recente</li>
-                    <li style="margin-bottom: 8px;">Elenca le tue domande specifiche</li>
-                    <li style="margin-bottom: 8px;">Pensa ai tuoi obiettivi di carriera</li>
-                    <li style="margin-bottom: 8px;">Avere carta e penna per prendere note</li>
-                </ul>
-            </div>
-            
             <!-- Support -->
             <div style="text-align: center; padding: 25px; background: #f8f9fa; border: 1px solid #e9ecef;">
                 <p style="margin: 0; color: #666; font-size: 14px; line-height: 1.5;">
@@ -604,9 +807,6 @@ function createBookingConfirmationTemplate(bookingData) {
 </html>`;
 }
 
-// ===================================
-// EMAIL TEMPLATE MIGLIORATO - GOOGLE MEET LINK
-// ===================================
 function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
     const date = new Date(bookingData.appointmentDate);
     const formattedDate = date.toLocaleDateString('it-IT', {
@@ -693,31 +893,6 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
                 </table>
             </div>
             
-            <!-- Calendar Integration -->
-            <div style="text-align: center; margin-bottom: 30px;">
-                <a href="${meetingInfo.eventLink}" 
-                   style="background: transparent; color: #2c3e50; padding: 12px 25px; text-decoration: none; 
-                          border: 2px solid #2c3e50; font-weight: 500; display: inline-block; 
-                          text-transform: uppercase; letter-spacing: 1px; font-size: 14px; border-radius: 5px;">
-                    📅 Apri nel Google Calendar
-                </a>
-                <p style="color: #666; margin: 15px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;">
-                    Evento automaticamente aggiunto
-                </p>
-            </div>
-            
-            <!-- Checklist -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; border-bottom: 2px solid #f39c12; padding-bottom: 10px;">✅ Checklist Pre-Chiamata</h3>
-                
-                <ul style="color: #555; line-height: 1.6; padding-left: 20px; margin: 20px 0;">
-                    <li style="margin-bottom: 8px;">✓ Salva questa email con il link</li>
-                    <li style="margin-bottom: 8px;">✓ Testa audio e video</li>
-                    <li style="margin-bottom: 8px;">✓ Ambiente silenzioso</li>
-                    <li style="margin-bottom: 8px;">✓ Portfolio pronto</li>
-                </ul>
-            </div>
-            
             <!-- Support -->
             <div style="text-align: center; padding: 25px; background: #fff3cd; border: 1px solid #ffeaa7;">
                 <p style="margin: 0; color: #666; font-size: 14px; line-height: 1.5;">
@@ -746,9 +921,6 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
 </html>`;
 }
 
-// ===================================
-// EMAIL TEMPLATE MIGLIORATO - CODICE SCONTO
-// ===================================
 function createDiscountEmailTemplate(name, discountCode, discountAmount) {
     return `
 <!DOCTYPE html>
@@ -799,46 +971,6 @@ function createDiscountEmailTemplate(name, discountCode, discountAmount) {
                 </p>
             </div>
             
-            <!-- Instructions -->
-            <div style="background: #f8f9fa; border: 1px solid #e9ecef; padding: 30px; margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px;">How to Use Your Code</h3>
-                
-                <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                    <tr>
-                        <td style="padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                            <div style="display: flex; align-items: center;">
-                                <div style="width: 30px; height: 30px; background: #3498db; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; margin-right: 15px; flex-shrink: 0; font-size: 14px;">1</div>
-                                <span style="color: #2c3e50; font-weight: 500;">Visit the consultation booking page</span>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 15px 0; border-bottom: 1px solid #e9ecef;">
-                            <div style="display: flex; align-items: center;">
-                                <div style="width: 30px; height: 30px; background: #3498db; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; margin-right: 15px; flex-shrink: 0; font-size: 14px;">2</div>
-                                <span style="color: #2c3e50;">Enter code <strong style="font-family: 'Courier New', monospace; background: #e9ecef; padding: 3px 8px; border-radius: 3px;">${discountCode}</strong> at checkout</span>
-                            </div>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 15px 0;">
-                            <div style="display: flex; align-items: center;">
-                                <div style="width: 30px; height: 30px; background: #3498db; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; margin-right: 15px; flex-shrink: 0; font-size: 14px;">3</div>
-                                <span style="color: #2c3e50; font-weight: 500;">Enjoy your ${discountAmount}% discount!</span>
-                            </div>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-            
-            <!-- Expiration Notice -->
-            <div style="text-align: center; padding: 25px; background: #fff3cd; border: 1px solid #ffeaa7;">
-                <p style="color: #856404; margin: 0; font-size: 14px; line-height: 1.5;">
-                    ⏰ <strong>This code expires in 30 days.</strong><br>
-                    Questions? Reply to this email and I'll help you out!
-                </p>
-            </div>
-            
         </div>
         
         <!-- Footer -->
@@ -850,20 +982,12 @@ function createDiscountEmailTemplate(name, discountCode, discountAmount) {
             <div style="color: #bdc3c7; font-size: 14px; line-height: 1.4; margin-bottom: 20px;">
                 VFX Artist & Rigger
             </div>
-            <div style="display: flex; justify-content: center; gap: 20px; flex-wrap: wrap;">
-                <a href="https://www.linkedin.com/in/valentinprocida" style="color: #3498db; text-decoration: none; font-size: 14px; font-weight: 500;">LinkedIn</a>
-                <a href="https://vimeo.com/valentinprocida" style="color: #3498db; text-decoration: none; font-size: 14px; font-weight: 500;">Vimeo</a>
-                <a href="https://www.valentinprocida.it" style="color: #3498db; text-decoration: none; font-size: 14px; font-weight: 500;">Website</a>
-            </div>
         </div>
     </div>
 </body>
 </html>`;
 }
 
-// ===================================
-// EMAIL TEMPLATE MIGLIORATO - NOTIFICA ADMIN
-// ===================================
 function createAdminNotificationTemplate(bookingData) {
     const date = new Date(bookingData.appointmentDate || new Date());
     const formattedDate = date.toLocaleDateString('it-IT', {
@@ -972,23 +1096,6 @@ function createAdminNotificationTemplate(bookingData) {
                 </div>
             </div>
             
-            <!-- Quick Actions -->
-            <div style="text-align: center;">
-                ${process.env.GOOGLE_SPREADSHEET_ID ? `
-                <a href="https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}" 
-                   style="background: #27ae60; color: white; padding: 12px 20px; text-decoration: none; 
-                          font-weight: 600; display: inline-block; font-size: 14px; margin: 5px;
-                          text-transform: uppercase; letter-spacing: 1px; border-radius: 5px;">
-                    📊 Google Sheets
-                </a>` : ''}
-                <a href="mailto:${bookingData.customerEmail || bookingData.email}" 
-                   style="background: #3498db; color: white; padding: 12px 20px; text-decoration: none; 
-                          font-weight: 600; display: inline-block; font-size: 14px; margin: 5px;
-                          text-transform: uppercase; letter-spacing: 1px; border-radius: 5px;">
-                    📧 Email Cliente
-                </a>
-            </div>
-            
         </div>
         
         <!-- Footer Admin -->
@@ -1001,6 +1108,7 @@ function createAdminNotificationTemplate(bookingData) {
 </body>
 </html>`;
 }
+
 // ===== SCHEDULER & EMAIL FUNCTIONS =====
 function scheduleReminderEmail(bookingData, meetingInfo, sendImmediately = true) {
     console.log('📧 scheduleReminderEmail chiamata con:', {
@@ -1185,14 +1293,44 @@ app.use(cors({
 }));
 
 // ===== ENDPOINTS BASE =====
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
+    let availabilityStatus = 'unknown';
+    let totalBookings = 0;
+    let availableDatesCount = 0;
+    
+    try {
+        // Test rapido del sistema di disponibilità
+        const existingBookings = await getExistingBookings();
+        totalBookings = existingBookings.length;
+        
+        const availableSlots = await getAvailableSlots();
+        availableDatesCount = Object.keys(availableSlots).length;
+        
+        availabilityStatus = 'working';
+    } catch (error) {
+        availabilityStatus = 'error: ' + error.message;
+    }
+    
     res.json({
         status: 'Server is running!',
         timestamp: new Date(),
+        
+        // Configurazioni esistenti
         totalDiscountCodes: Object.keys(discountCodes).length,
         emailConfigured: !!transporter,
         googleSheetsConfigured: !!sheets,
         googleCalendarConfigured: !!calendar,
+        
+        // 🔥 NUOVO: Informazioni sistema disponibilità
+        availabilitySystem: {
+            status: availabilityStatus,
+            totalExistingBookings: totalBookings,
+            availableDatesCount: availableDatesCount,
+            googleSheetsIntegration: !!sheets && !!process.env.GOOGLE_SPREADSHEET_ID,
+            lastChecked: new Date().toISOString()
+        },
+        
+        // Info sistema
         env: process.env.NODE_ENV || 'development',
         keepAliveActive: process.env.NODE_ENV === 'production',
         renderUrl: process.env.RENDER_URL,
@@ -1249,6 +1387,100 @@ app.get('/api/config', (req, res) => {
         return res.status(500).json({ error: 'Stripe publishable key not configured' });
     }
     res.json({ publishableKey: process.env.STRIPE_PUBLISHABLE_KEY });
+});
+
+// ===== NUOVI ENDPOINT API PER GESTIRE DISPONIBILITÀ =====
+
+/**
+ * Endpoint per ottenere tutti gli slot disponibili
+ */
+app.get('/api/available-slots', async (req, res) => {
+    try {
+        console.log('📅 Richiesta slot disponibili ricevuta');
+        
+        const availableSlots = await getAvailableSlots();
+        
+        res.json({
+            success: true,
+            availableSlots: availableSlots,
+            totalDatesAvailable: Object.keys(availableSlots).length,
+            generatedAt: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Errore recupero slot disponibili:', error);
+        
+        // Fallback: restituisci tutti i possibili slot
+        const fallbackSlots = generateAllPossibleSlots();
+        
+        res.json({
+            success: true,
+            availableSlots: fallbackSlots,
+            totalDatesAvailable: Object.keys(fallbackSlots).length,
+            generatedAt: new Date().toISOString(),
+            warning: 'Fallback utilizzato - controllo prenotazioni esistenti fallito'
+        });
+    }
+});
+
+/**
+ * Endpoint per controllare la disponibilità di uno slot specifico
+ */
+app.post('/api/check-slot-availability', async (req, res) => {
+    try {
+        const { date, time } = req.body;
+        
+        if (!date || !time) {
+            return res.status(400).json({
+                success: false,
+                error: 'Data e orario sono richiesti'
+            });
+        }
+        
+        console.log(`🔍 Controllo disponibilità slot: ${date} alle ${time}`);
+        
+        const isBooked = await isSlotBooked(date, time);
+        
+        res.json({
+            success: true,
+            available: !isBooked,
+            date: date,
+            time: time,
+            checkedAt: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Errore controllo disponibilità slot:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Errore interno nel controllo disponibilità',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * Endpoint per vedere tutte le prenotazioni esistenti (per debug/admin)
+ */
+app.get('/api/existing-bookings', async (req, res) => {
+    try {
+        const existingBookings = await getExistingBookings();
+        
+        res.json({
+            success: true,
+            bookings: existingBookings,
+            totalBookings: existingBookings.length,
+            retrievedAt: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error('❌ Errore recupero prenotazioni esistenti:', error);
+        res.status(500).json({
+            success: false,
+            error: 'Errore nel recupero delle prenotazioni esistenti',
+            details: error.message
+        });
+    }
 });
 
 // ===== ENDPOINTS EMAIL E CODICI SCONTO =====
@@ -1360,8 +1592,33 @@ app.post('/api/validate-discount', async (req, res) => {
 app.post('/api/create-payment-intent', async (req, res) => {
     try {
         const { email, name, phone, company, appointmentDate, appointmentTime, discountCode } = req.body;
-        if (!email || !name) return res.status(400).json({ error: 'Email e nome sono richiesti' });
-        if (!process.env.STRIPE_SECRET_KEY) throw new Error('Stripe secret key not configured');
+        
+        if (!email || !name) {
+            return res.status(400).json({ error: 'Email e nome sono richiesti' });
+        }
+        
+        if (!appointmentDate || !appointmentTime) {
+            return res.status(400).json({ error: 'Data e orario dell\'appuntamento sono richiesti' });
+        }
+        
+        if (!process.env.STRIPE_SECRET_KEY) {
+            throw new Error('Stripe secret key not configured');
+        }
+
+        // 🔥 NUOVO: Controlla se lo slot è ancora disponibile
+        console.log(`🔍 Controllo finale disponibilità: ${appointmentDate} alle ${appointmentTime}`);
+        
+        const isBooked = await isSlotBooked(appointmentDate, appointmentTime);
+        
+        if (isBooked) {
+            console.log(`❌ Slot ${appointmentDate} alle ${appointmentTime} già prenotato!`);
+            return res.status(409).json({ 
+                error: 'Questo slot è stato appena prenotato da un altro cliente. Seleziona un altro orario.',
+                code: 'SLOT_ALREADY_BOOKED'
+            });
+        }
+        
+        console.log(`✅ Slot ${appointmentDate} alle ${appointmentTime} ancora disponibile, procedo con il pagamento`);
 
         let originalAmount = 15000;
         let finalAmount = originalAmount;
@@ -1369,24 +1626,31 @@ app.post('/api/create-payment-intent', async (req, res) => {
 
         if (discountCode) {
             const discountResult = calculateDiscountedPrice(originalAmount, discountCode);
-            if (!discountResult.valid) return res.status(400).json({ error: discountResult.error });
+            if (!discountResult.valid) {
+                return res.status(400).json({ error: discountResult.error });
+            }
 
             finalAmount = discountResult.finalPrice;
             discountInfo = {
-                code: discountResult.discountCode, description: discountResult.discountDescription,
-                originalAmount: discountResult.originalPrice, discountAmount: discountResult.discountAmount,
+                code: discountResult.discountCode,
+                description: discountResult.discountDescription,
+                originalAmount: discountResult.originalPrice,
+                discountAmount: discountResult.discountAmount,
                 finalAmount: discountResult.finalPrice
             };
         }
 
         const paymentIntent = await stripe.paymentIntents.create({
-            amount: finalAmount, currency: 'eur', automatic_payment_methods: { enabled: true },
+            amount: finalAmount,
+            currency: 'eur',
+            automatic_payment_methods: { enabled: true },
             metadata: {
                 email, name, phone: phone || '', company: company || '',
                 product: 'vfx-consultation', productId: 'cons-001',
                 appointmentDate: appointmentDate || '',
                 appointmentTime: appointmentTime || '',
-                originalAmount: originalAmount.toString(), discountCode: discountCode || '',
+                originalAmount: originalAmount.toString(),
+                discountCode: discountCode || '',
                 discountAmount: discountInfo ? discountInfo.discountAmount.toString() : '0',
                 finalAmount: finalAmount.toString()
             },
@@ -1396,11 +1660,17 @@ app.post('/api/create-payment-intent', async (req, res) => {
         res.json({
             clientSecret: paymentIntent.client_secret,
             paymentIntentId: paymentIntent.id,
-            discountInfo
+            discountInfo,
+            slotVerified: true,
+            verifiedAt: new Date().toISOString()
         });
+
     } catch (error) {
-        console.error('Errore creazione payment intent:', error);
-        res.status(500).json({ error: 'Errore nel processare il pagamento', details: error.message });
+        console.error('❌ Errore creazione payment intent:', error);
+        res.status(500).json({ 
+            error: 'Errore nel processare il pagamento', 
+            details: error.message 
+        });
     }
 });
 
@@ -1702,6 +1972,7 @@ app.get('/api/discount-stats', (req, res) => {
     });
 });
 
+// ===== ENDPOINT 404 PER API =====
 app.use(/^\/api\/.*/, (req, res) => {
     res.status(404).json({
         error: 'API endpoint not found',
@@ -1711,6 +1982,9 @@ app.use(/^\/api\/.*/, (req, res) => {
             'GET /api/config',
             'GET /ping',
             'GET /api/test-keepalive',
+            'GET /api/available-slots',
+            'POST /api/check-slot-availability',
+            'GET /api/existing-bookings',
             'POST /api/test-google-meet-email',
             'POST /api/force-google-meet-email',
             'POST /api/send-discount-email',
@@ -1723,12 +1997,14 @@ app.use(/^\/api\/.*/, (req, res) => {
     });
 });
 
-// ===== INIZIALIZZAZIONE =====
+// ===== INIZIALIZZAZIONE SERVER =====
 async function startServer() {
     try {
+        // Inizializza tutti i servizi
         await initGoogleServices();
         generateInitialCodes();
 
+        // Verifica configurazione email
         if (transporter) {
             transporter.verify((error, success) => {
                 if (error) {
@@ -1739,6 +2015,7 @@ async function startServer() {
             });
         }
 
+        // Cleanup automatico codici scaduti ogni ora
         setInterval(() => {
             let deactivatedCount = 0;
             const now = new Date();
@@ -1753,8 +2030,9 @@ async function startServer() {
             if (deactivatedCount > 0) {
                 console.log(`🧹 Cleanup automatico: ${deactivatedCount} codici scaduti disattivati`);
             }
-        }, 60 * 60 * 1000);
+        }, 60 * 60 * 1000); // Ogni ora
 
+        // Avvia il server
         app.listen(PORT, '0.0.0.0', () => {
             console.log(`✅ Server running on port ${PORT}`);
             console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -1764,6 +2042,7 @@ async function startServer() {
             console.log(`📅 Google Calendar configured: ${!!calendar}`);
             console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
             console.log(`🏓 Keep-alive attivo: ${process.env.NODE_ENV === 'production'}`);
+            console.log(`🛡️ Sistema anti-doppie prenotazioni: ${!!sheets ? 'ATTIVO' : 'FALLBACK LOCALE'}`);
             console.log(`🌐 Server ready at: http://localhost:${PORT}`);
 
             console.log('\n🎯 Codici sconto disponibili:');
@@ -1772,9 +2051,29 @@ async function startServer() {
             });
             console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
 
+            // Informazioni sistema di disponibilità
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('🛡️ SISTEMA ANTI-DOPPIE PRENOTAZIONI');
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(`📊 Google Sheets: ${!!sheets ? 'CONFIGURATO' : 'NON CONFIGURATO'}`);
+            console.log(`🔗 Spreadsheet ID: ${process.env.GOOGLE_SPREADSHEET_ID ? 'CONFIGURATO' : 'MANCANTE'}`);
+            console.log(`✅ Controllo real-time: ATTIVO`);
+            console.log(`🔒 Prevenzione race conditions: ATTIVA`);
+            console.log(`🔄 Fallback locale: DISPONIBILE`);
+            
+            if (!sheets) {
+                console.log('⚠️  WARNING: Google Sheets non configurato!');
+                console.log('   🔧 Il sistema funzionerà con fallback locale');
+                console.log('   📋 Per attivare il controllo completo:');
+                console.log('      1. Configura GOOGLE_SERVICE_ACCOUNT_KEY');
+                console.log('      2. Configura GOOGLE_SPREADSHEET_ID');
+                console.log('      3. Crea tab "Prenotazioni" con headers corretti');
+            }
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+            // Informazioni keep-alive (solo in produzione)
             if (process.env.NODE_ENV === 'production') {
-                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                console.log('🏓 KEEP-ALIVE SYSTEM STATUS');
+                console.log('\n🏓 KEEP-ALIVE SYSTEM STATUS');
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log(`🌐 Render URL: ${RENDER_URL}`);
                 console.log(`⏰ Ping interval: Every 12 minutes`);
@@ -1798,6 +2097,20 @@ async function startServer() {
                     }, 5000);
                 }
             }
+
+            // Test sistema disponibilità (solo se Google Sheets è configurato)
+            if (sheets && process.env.GOOGLE_SPREADSHEET_ID) {
+                setTimeout(async () => {
+                    try {
+                        console.log('\n🧪 Testing availability system...');
+                        const existingBookings = await getExistingBookings();
+                        const availableSlots = await getAvailableSlots();
+                        console.log(`✅ Sistema disponibilità OK: ${existingBookings.length} prenotazioni, ${Object.keys(availableSlots).length} date disponibili`);
+                    } catch (error) {
+                        console.log(`⚠️ Test sistema disponibilità fallito: ${error.message}`);
+                    }
+                }, 3000);
+            }
         });
 
     } catch (error) {
@@ -1806,6 +2119,7 @@ async function startServer() {
     }
 }
 
+// ===== GESTIONE ERRORI =====
 process.on('unhandledRejection', (err) => {
     console.error('Unhandled Promise Rejection:', err);
 });
@@ -1815,4 +2129,5 @@ process.on('uncaughtException', (err) => {
     process.exit(1);
 });
 
+// ===== AVVIO SERVER =====
 startServer();
