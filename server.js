@@ -193,7 +193,7 @@ async function getExistingBookings() {
 
     try {
         const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-        
+
         // Legge tutte le righe dalla colonna A alla K
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
@@ -201,24 +201,24 @@ async function getExistingBookings() {
         });
 
         const rows = response.data.values || [];
-        
+
         // Salta la riga dell'header (prima riga)
         const bookingRows = rows.slice(1);
-        
+
         const existingBookings = [];
-        
+
         bookingRows.forEach((row, index) => {
             // Struttura: [Timestamp, Nome, Email, Telefono, Azienda, Data, Orario, Prezzo, Sconto, PaymentID, Stato]
             if (row.length >= 7) {
                 const rawDate = row[5]; // Data
                 const time = row[6];    // Orario
                 const status = row[10]; // Stato
-                
+
                 // Solo prenotazioni confermate
                 if (status === 'Confermata' && rawDate && time) {
                     // Converte la data dal formato italiano (dd/mm/yyyy) al formato ISO (yyyy-mm-dd)
                     const dateFormatted = convertItalianDateToISO(rawDate);
-                    
+
                     if (dateFormatted) {
                         existingBookings.push({
                             date: dateFormatted,
@@ -246,22 +246,22 @@ async function getExistingBookings() {
 function convertItalianDateToISO(italianDate) {
     try {
         // Gestisce formati: "18/7/2025", "18/07/2025", "venerdì 18 luglio 2025"
-        
+
         // Se contiene testo (giorno della settimana), estrai solo la parte numerica
         const dateMatch = italianDate.match(/(\d{1,2})[\s\/](\d{1,2})[\s\/](\d{4})/);
-        
+
         if (dateMatch) {
             const [, day, month, year] = dateMatch;
             return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
         }
-        
+
         // Prova parsing diretto
         const parts = italianDate.split('/');
         if (parts.length === 3) {
             const [day, month, year] = parts;
             return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
         }
-        
+
         return null;
     } catch (error) {
         console.error('❌ Errore conversione data:', italianDate, error);
@@ -274,8 +274,8 @@ function convertItalianDateToISO(italianDate) {
  */
 async function isSlotBooked(date, time) {
     const existingBookings = await getExistingBookings();
-    
-    return existingBookings.some(booking => 
+
+    return existingBookings.some(booking =>
         booking.date === date && booking.time === time
     );
 }
@@ -287,29 +287,29 @@ async function getAvailableSlots() {
     try {
         // Ottieni tutte le prenotazioni esistenti
         const existingBookings = await getExistingBookings();
-        
+
         // Genera tutti i possibili slot (stesso algoritmo del frontend)
         const allSlots = generateAllPossibleSlots();
-        
+
         // Filtra gli slot già prenotati
         const availableSlots = {};
-        
+
         Object.entries(allSlots).forEach(([date, times]) => {
             const availableTimes = times.filter(time => {
-                return !existingBookings.some(booking => 
+                return !existingBookings.some(booking =>
                     booking.date === date && booking.time === time
                 );
             });
-            
+
             // Solo se ci sono orari disponibili, includi la data
             if (availableTimes.length > 0) {
                 availableSlots[date] = availableTimes;
             }
         });
-        
+
         console.log(`📅 Slot disponibili calcolati: ${Object.keys(availableSlots).length} date disponibili`);
         return availableSlots;
-        
+
     } catch (error) {
         console.error('❌ Errore calcolo slot disponibili:', error);
         // Fallback: restituisci tutti gli slot possibili
@@ -331,7 +331,7 @@ function generateAllPossibleSlots() {
 
         // Salta weekend
         if (date.getDay() === 0 || date.getDay() === 6) continue;
-        
+
         // Salta festività italiane
         if (isItalianHoliday(date)) continue;
 
@@ -681,10 +681,12 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransporter(emailConfig);
+    // ✅ CORRETTO: createTransport (senza la "r")
+    transporter = nodemailer.createTransport(emailConfig);
     console.log('📧 Email transporter configurato');
+} else {
+    console.warn('⚠️ Credenziali email non configurate - servizio email disabilitato');
 }
-
 // ===== EMAIL TEMPLATES =====
 function createBookingConfirmationTemplate(bookingData) {
     const date = new Date(bookingData.appointmentDate || new Date());
@@ -1297,30 +1299,30 @@ app.get('/api/health', async (req, res) => {
     let availabilityStatus = 'unknown';
     let totalBookings = 0;
     let availableDatesCount = 0;
-    
+
     try {
         // Test rapido del sistema di disponibilità
         const existingBookings = await getExistingBookings();
         totalBookings = existingBookings.length;
-        
+
         const availableSlots = await getAvailableSlots();
         availableDatesCount = Object.keys(availableSlots).length;
-        
+
         availabilityStatus = 'working';
     } catch (error) {
         availabilityStatus = 'error: ' + error.message;
     }
-    
+
     res.json({
         status: 'Server is running!',
         timestamp: new Date(),
-        
+
         // Configurazioni esistenti
         totalDiscountCodes: Object.keys(discountCodes).length,
         emailConfigured: !!transporter,
         googleSheetsConfigured: !!sheets,
         googleCalendarConfigured: !!calendar,
-        
+
         // 🔥 NUOVO: Informazioni sistema disponibilità
         availabilitySystem: {
             status: availabilityStatus,
@@ -1329,7 +1331,7 @@ app.get('/api/health', async (req, res) => {
             googleSheetsIntegration: !!sheets && !!process.env.GOOGLE_SPREADSHEET_ID,
             lastChecked: new Date().toISOString()
         },
-        
+
         // Info sistema
         env: process.env.NODE_ENV || 'development',
         keepAliveActive: process.env.NODE_ENV === 'production',
@@ -1397,22 +1399,22 @@ app.get('/api/config', (req, res) => {
 app.get('/api/available-slots', async (req, res) => {
     try {
         console.log('📅 Richiesta slot disponibili ricevuta');
-        
+
         const availableSlots = await getAvailableSlots();
-        
+
         res.json({
             success: true,
             availableSlots: availableSlots,
             totalDatesAvailable: Object.keys(availableSlots).length,
             generatedAt: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('❌ Errore recupero slot disponibili:', error);
-        
+
         // Fallback: restituisci tutti i possibili slot
         const fallbackSlots = generateAllPossibleSlots();
-        
+
         res.json({
             success: true,
             availableSlots: fallbackSlots,
@@ -1429,18 +1431,18 @@ app.get('/api/available-slots', async (req, res) => {
 app.post('/api/check-slot-availability', async (req, res) => {
     try {
         const { date, time } = req.body;
-        
+
         if (!date || !time) {
             return res.status(400).json({
                 success: false,
                 error: 'Data e orario sono richiesti'
             });
         }
-        
+
         console.log(`🔍 Controllo disponibilità slot: ${date} alle ${time}`);
-        
+
         const isBooked = await isSlotBooked(date, time);
-        
+
         res.json({
             success: true,
             available: !isBooked,
@@ -1448,7 +1450,7 @@ app.post('/api/check-slot-availability', async (req, res) => {
             time: time,
             checkedAt: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('❌ Errore controllo disponibilità slot:', error);
         res.status(500).json({
@@ -1465,14 +1467,14 @@ app.post('/api/check-slot-availability', async (req, res) => {
 app.get('/api/existing-bookings', async (req, res) => {
     try {
         const existingBookings = await getExistingBookings();
-        
+
         res.json({
             success: true,
             bookings: existingBookings,
             totalBookings: existingBookings.length,
             retrievedAt: new Date().toISOString()
         });
-        
+
     } catch (error) {
         console.error('❌ Errore recupero prenotazioni esistenti:', error);
         res.status(500).json({
@@ -1592,32 +1594,32 @@ app.post('/api/validate-discount', async (req, res) => {
 app.post('/api/create-payment-intent', async (req, res) => {
     try {
         const { email, name, phone, company, appointmentDate, appointmentTime, discountCode } = req.body;
-        
+
         if (!email || !name) {
             return res.status(400).json({ error: 'Email e nome sono richiesti' });
         }
-        
+
         if (!appointmentDate || !appointmentTime) {
             return res.status(400).json({ error: 'Data e orario dell\'appuntamento sono richiesti' });
         }
-        
+
         if (!process.env.STRIPE_SECRET_KEY) {
             throw new Error('Stripe secret key not configured');
         }
 
         // 🔥 NUOVO: Controlla se lo slot è ancora disponibile
         console.log(`🔍 Controllo finale disponibilità: ${appointmentDate} alle ${appointmentTime}`);
-        
+
         const isBooked = await isSlotBooked(appointmentDate, appointmentTime);
-        
+
         if (isBooked) {
             console.log(`❌ Slot ${appointmentDate} alle ${appointmentTime} già prenotato!`);
-            return res.status(409).json({ 
+            return res.status(409).json({
                 error: 'Questo slot è stato appena prenotato da un altro cliente. Seleziona un altro orario.',
                 code: 'SLOT_ALREADY_BOOKED'
             });
         }
-        
+
         console.log(`✅ Slot ${appointmentDate} alle ${appointmentTime} ancora disponibile, procedo con il pagamento`);
 
         let originalAmount = 15000;
@@ -1667,9 +1669,9 @@ app.post('/api/create-payment-intent', async (req, res) => {
 
     } catch (error) {
         console.error('❌ Errore creazione payment intent:', error);
-        res.status(500).json({ 
-            error: 'Errore nel processare il pagamento', 
-            details: error.message 
+        res.status(500).json({
+            error: 'Errore nel processare il pagamento',
+            details: error.message
         });
     }
 });
@@ -2060,7 +2062,7 @@ async function startServer() {
             console.log(`✅ Controllo real-time: ATTIVO`);
             console.log(`🔒 Prevenzione race conditions: ATTIVA`);
             console.log(`🔄 Fallback locale: DISPONIBILE`);
-            
+
             if (!sheets) {
                 console.log('⚠️  WARNING: Google Sheets non configurato!');
                 console.log('   🔧 Il sistema funzionerà con fallback locale');
