@@ -35,17 +35,17 @@ async function keepServerAlive() {
     if (process.env.NODE_ENV === 'production' && RENDER_URL && !RENDER_URL.includes('localhost')) {
         try {
             const response = await fetch(`${RENDER_URL}/ping`);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-            
+
             const data = await response.json();
             console.log(`🏓 Keep-alive ping successful: ${data.status} at ${data.timestamp} (uptime: ${Math.floor(data.uptime)}s)`);
-            
+
         } catch (error) {
             console.error(`❌ Keep-alive ping failed: ${error.message}`);
-            
+
             // Retry dopo 2 minuti se fallisce
             setTimeout(() => {
                 console.log('🔄 Retry keep-alive ping...');
@@ -66,9 +66,9 @@ if (process.env.NODE_ENV === 'production') {
     if (cron) {
         // Cron job ogni 12 minuti - formato: minuto ora giorno mese giornoSettimana
         const cronExpression = '*/12 * * * *'; // Ogni 12 minuti
-        
+
         console.log(`⏰ Scheduling cron job con pattern: ${cronExpression}`);
-        
+
         const scheduledTask = cron.schedule(cronExpression, () => {
             const now = new Date();
             console.log(`🏓 Cron job triggered at ${now.toISOString()} - Eseguendo keep-alive ping...`);
@@ -77,15 +77,15 @@ if (process.env.NODE_ENV === 'production') {
             scheduled: true,
             timezone: "Europe/Rome"
         });
-        
+
         console.log(`✅ Cron job scheduled successfully with pattern: ${cronExpression}`);
-        
+
         // Primo ping dopo 1 minuto dall'avvio
         setTimeout(() => {
             console.log('🏓 Primo keep-alive ping dopo avvio...');
             keepServerAlive();
         }, 60000);
-        
+
         // Ping di test ogni 30 secondi per i primi 5 minuti (solo per debug)
         if (process.env.DEBUG_KEEPALIVE === 'true') {
             console.log('🐛 Debug mode: ping ogni 30 secondi per 5 minuti');
@@ -93,16 +93,16 @@ if (process.env.NODE_ENV === 'production') {
                 console.log('🐛 Debug ping...');
                 keepServerAlive();
             }, 30000);
-            
+
             setTimeout(() => {
                 clearInterval(debugInterval);
                 console.log('🐛 Debug mode terminato');
             }, 5 * 60 * 1000);
         }
-        
+
     } else {
         console.error('❌ node-cron non disponibile! Keep-alive non funzionerà correttamente.');
-        
+
         // Fallback con setInterval
         console.log('🔄 Usando setInterval come fallback...');
         setInterval(() => {
@@ -110,7 +110,7 @@ if (process.env.NODE_ENV === 'production') {
             keepServerAlive();
         }, 12 * 60 * 1000); // 12 minuti
     }
-    
+
 } else {
     console.log('💻 Ambiente di sviluppo - Keep-alive disabilitato');
 }
@@ -503,7 +503,7 @@ function createBookingConfirmationTemplate(bookingData) {
             
             <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
                 La tua consulenza VFX è stata confermata con successo. 
-                Riceverai il link Google Meet 24 ore prima dell'appuntamento.
+                <strong>Riceverai il link Google Meet in una email separata tra pochi minuti.</strong>
             </p>
             
             <!-- Appointment Details -->
@@ -521,6 +521,17 @@ function createBookingConfirmationTemplate(bookingData) {
                 <p style="margin: 10px 0;"><strong>Importo:</strong> €${finalAmount}</p>
                 ${bookingData.discount ? `<p style="margin: 10px 0;"><strong>Sconto:</strong> ${bookingData.discount.code}</p>` : ''}
                 <p style="margin: 10px 0; color: #666; font-size: 12px;"><strong>ID:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
+            </div>
+            
+            <!-- Google Meet Notice -->
+            <div style="background: #8B2635; color: white; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 30px;">
+                <h3 style="color: white; margin-top: 0;">🎥 Link Google Meet</h3>
+                <p style="margin: 0; font-size: 16px;">
+                    <strong>Ti invieremo il link per la video chiamata in una email separata tra pochi minuti!</strong>
+                </p>
+                <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 14px;">
+                    Controlla la tua casella di posta per l'email con il link Google Meet
+                </p>
             </div>
             
             <!-- What to Expect -->
@@ -550,8 +561,7 @@ function createBookingConfirmationTemplate(bookingData) {
             
             <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
                 <p style="margin: 0; color: #666;">
-                    Ti invierò il link per la video chiamata 24 ore prima dell'appuntamento.
-                    <br>Se hai domande, rispondi pure a questa email!
+                    Se hai domande, rispondi pure a questa email!
                 </p>
             </div>
             
@@ -602,8 +612,8 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         
         <!-- Header -->
         <div style="background: #8B2635; color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">🎥 Link Google Meet Pronto!</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Il tuo appuntamento è tra 24 ore</p>
+            <h1 style="margin: 0; font-size: 24px;">🎥 Ecco il tuo Link Google Meet!</h1>
+            <p style="margin: 10px 0 0 0; opacity: 0.9;">Per la tua consulenza VFX</p>
         </div>
         
         <!-- Content -->
@@ -612,7 +622,8 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
             <h2 style="color: #2c3e50; margin-bottom: 20px;">Ciao ${bookingData.customerName}!</h2>
             
             <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
-                Il tuo appuntamento è confermato e il link per la video chiamata è pronto. Ci vediamo domani!
+                Perfetto! La tua prenotazione è completa e il link per la video chiamata è pronto. 
+                <strong>Salva questa email e usa il link qui sotto per unirti alla chiamata.</strong>
             </p>
             
             <!-- Google Meet Link -->
@@ -647,6 +658,17 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
                 <p style="color: #666; margin: 15px 0 0 0; font-size: 14px;">
                     L'evento è stato automaticamente aggiunto al tuo calendario
                 </p>
+            </div>
+            
+            <!-- Important Notes -->
+            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0;">
+                <h3 style="color: #856404; margin-top: 0;">📋 Note Importanti</h3>
+                <ul style="color: #856404; line-height: 1.6; margin: 0; padding-left: 20px;">
+                    <li>Salva questa email con il link Google Meet</li>
+                    <li>Testa audio e video prima dell'appuntamento</li>
+                    <li>Preparti in un ambiente silenzioso</li>
+                    <li>Tieni pronto il tuo portfolio</li>
+                </ul>
             </div>
             
             <!-- Support -->
@@ -862,11 +884,12 @@ function createAdminNotificationTemplate(bookingData) {
 }
 
 // ===== SCHEDULER & EMAIL FUNCTIONS =====
-function scheduleReminderEmail(bookingData, meetingInfo) {
+function scheduleReminderEmail(bookingData, meetingInfo, sendImmediately = true) {
     console.log('📧 scheduleReminderEmail chiamata con:', {
         appointmentDate: bookingData.appointmentDate,
         appointmentTime: bookingData.appointmentTime,
-        meetingInfo: meetingInfo ? 'PRESENTE' : 'MANCANTE'
+        meetingInfo: meetingInfo ? 'PRESENTE' : 'MANCANTE',
+        sendImmediately: sendImmediately
     });
 
     if (!meetingInfo) {
@@ -874,6 +897,14 @@ function scheduleReminderEmail(bookingData, meetingInfo) {
         return;
     }
 
+    // ✅ FIX: Se sendImmediately è true, invia subito
+    if (sendImmediately) {
+        console.log('📧 Invio IMMEDIATO dell\'email Google Meet (come richiesto)');
+        sendMeetingLinkEmail(bookingData, meetingInfo);
+        return;
+    }
+
+    // Logica originale per invio programmato (solo se sendImmediately = false)
     const appointmentDate = new Date(bookingData.appointmentDate);
     const [hours, minutes] = bookingData.appointmentTime.split(':');
 
@@ -1057,7 +1088,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/test-keepalive', async (req, res) => {
     try {
         console.log('🧪 Test keep-alive richiesto manualmente');
-        
+
         if (process.env.NODE_ENV !== 'production') {
             return res.json({
                 success: false,
@@ -1065,7 +1096,7 @@ app.get('/api/test-keepalive', async (req, res) => {
                 environment: process.env.NODE_ENV || 'development'
             });
         }
-        
+
         if (!RENDER_URL || RENDER_URL.includes('localhost')) {
             return res.json({
                 success: false,
@@ -1073,10 +1104,10 @@ app.get('/api/test-keepalive', async (req, res) => {
                 renderUrl: RENDER_URL
             });
         }
-        
+
         // Esegui il ping manualmente
         await keepServerAlive();
-        
+
         res.json({
             success: true,
             message: 'Keep-alive ping eseguito con successo',
@@ -1084,7 +1115,7 @@ app.get('/api/test-keepalive', async (req, res) => {
             renderUrl: RENDER_URL,
             uptime: process.uptime()
         });
-        
+
     } catch (error) {
         console.error('❌ Errore test keep-alive:', error);
         res.status(500).json({
@@ -1632,7 +1663,7 @@ async function startServer() {
                 console.log(`🔧 Cron available: ${!!cron}`);
                 console.log(`🐛 Debug mode: ${process.env.DEBUG_KEEPALIVE === 'true' ? 'ENABLED' : 'DISABLED'}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                
+
                 if (!RENDER_URL || RENDER_URL.includes('localhost')) {
                     console.log('⚠️  WARNING: RENDER_URL not configured! Keep-alive will not work.');
                     console.log('   🔧 Set RENDER_URL environment variable to your Render app URL');
