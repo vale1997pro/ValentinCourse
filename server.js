@@ -19,38 +19,95 @@ app.get('/ping', (req, res) => {
         status: 'pong',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        memory: process.memoryUsage()
+        memory: process.memoryUsage(),
+        environment: process.env.NODE_ENV || 'development',
+        keepAliveActive: process.env.NODE_ENV === 'production'
     });
 });
 
-// Keep-alive function
+// Keep-alive function con migliore gestione errori
 async function keepServerAlive() {
     if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
         try {
             const response = await fetch(`${RENDER_URL}/ping`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const data = await response.json();
-            console.log(`🏓 Keep-alive ping successful: ${data.status} at ${data.timestamp}`);
+            console.log(`🏓 Keep-alive ping successful: ${data.status} at ${data.timestamp} (uptime: ${Math.floor(data.uptime)}s)`);
+            
         } catch (error) {
-            console.error('❌ Keep-alive ping failed:', error.message);
+            console.error(`❌ Keep-alive ping failed: ${error.message}`);
+            
+            // Retry dopo 2 minuti se fallisce
+            setTimeout(() => {
+                console.log('🔄 Retry keep-alive ping...');
+                keepServerAlive();
+            }, 2 * 60 * 1000); // 2 minuti
         }
+    } else {
+        console.log('🏓 Keep-alive skipped (not in production or RENDER_URL not set)');
     }
 }
 
-// Cron job per keep-alive ogni 12 minuti (720 secondi)
+// ✅ FIXED: Sistema keep-alive migliorato
 if (process.env.NODE_ENV === 'production') {
     console.log('🔄 Configurando keep-alive per Render (ogni 12 minuti)...');
+    console.log(`🌐 RENDER_URL configurato: ${process.env.RENDER_URL || 'NON CONFIGURATO'}`);
 
-    // Ogni 12 minuti
-    cron.schedule('*/12 * * * *', () => {
-        console.log('🏓 Eseguendo keep-alive ping...');
-        keepServerAlive();
-    });
-
-    // Primo ping dopo 1 minuto dall'avvio
-    setTimeout(() => {
-        console.log('🏓 Primo keep-alive ping...');
-        keepServerAlive();
-    }, 60000);
+    // Verifica che node-cron sia disponibile
+    if (cron) {
+        // Cron job ogni 12 minuti - formato: minuto ora giorno mese giornoSettimana
+        const cronExpression = '*/12 * * * *'; // Ogni 12 minuti
+        
+        console.log(`⏰ Scheduling cron job con pattern: ${cronExpression}`);
+        
+        const scheduledTask = cron.schedule(cronExpression, () => {
+            const now = new Date();
+            console.log(`🏓 Cron job triggered at ${now.toISOString()} - Eseguendo keep-alive ping...`);
+            keepServerAlive();
+        }, {
+            scheduled: true,
+            timezone: "Europe/Rome"
+        });
+        
+        console.log(`✅ Cron job scheduled successfully. Next execution: ${scheduledTask.nextDate()}`);
+        
+        // Primo ping dopo 1 minuto dall'avvio
+        setTimeout(() => {
+            console.log('🏓 Primo keep-alive ping dopo avvio...');
+            keepServerAlive();
+        }, 60000);
+        
+        // Ping di test ogni 30 secondi per i primi 5 minuti (solo per debug)
+        if (process.env.DEBUG_KEEPALIVE === 'true') {
+            console.log('🐛 Debug mode: ping ogni 30 secondi per 5 minuti');
+            const debugInterval = setInterval(() => {
+                console.log('🐛 Debug ping...');
+                keepServerAlive();
+            }, 30000);
+            
+            setTimeout(() => {
+                clearInterval(debugInterval);
+                console.log('🐛 Debug mode terminato');
+            }, 5 * 60 * 1000);
+        }
+        
+    } else {
+        console.error('❌ node-cron non disponibile! Keep-alive non funzionerà correttamente.');
+        
+        // Fallback con setInterval
+        console.log('🔄 Usando setInterval come fallback...');
+        setInterval(() => {
+            console.log('🏓 Fallback interval - Eseguendo keep-alive ping...');
+            keepServerAlive();
+        }, 12 * 60 * 1000); // 12 minuti
+    }
+    
+} else {
+    console.log('💻 Ambiente di sviluppo - Keep-alive disabilitato');
 }
 
 // ===== GOOGLE SHEETS & CALENDAR SETUP =====
@@ -401,7 +458,7 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransport(emailConfig); // ✅ CORRETTO
+    transporter = nodemailer.createTransporter(emailConfig);
     console.log('📧 Email transporter configurato');
 }
 
@@ -985,8 +1042,52 @@ app.get('/api/health', (req, res) => {
         env: process.env.NODE_ENV || 'development',
         keepAliveActive: process.env.NODE_ENV === 'production',
         renderUrl: process.env.RENDER_URL,
-        uptime: `${Math.floor(process.uptime())} seconds`
+        uptime: `${Math.floor(process.uptime())} seconds`,
+        nextCronExecution: process.env.NODE_ENV === 'production' ? 'Check logs for cron schedule' : 'N/A',
+        memory: process.memoryUsage()
     });
+});
+
+// ✅ NUOVO: Endpoint per testare manualmente il keep-alive
+app.get('/api/test-keepalive', async (req, res) => {
+    try {
+        console.log('🧪 Test keep-alive richiesto manualmente');
+        
+        if (process.env.NODE_ENV !== 'production') {
+            return res.json({
+                success: false,
+                message: 'Keep-alive è attivo solo in produzione',
+                environment: process.env.NODE_ENV || 'development'
+            });
+        }
+        
+        if (!process.env.RENDER_URL) {
+            return res.json({
+                success: false,
+                message: 'RENDER_URL non configurato',
+                renderUrl: process.env.RENDER_URL
+            });
+        }
+        
+        // Esegui il ping manualmente
+        await keepServerAlive();
+        
+        res.json({
+            success: true,
+            message: 'Keep-alive ping eseguito con successo',
+            timestamp: new Date().toISOString(),
+            renderUrl: process.env.RENDER_URL,
+            uptime: process.uptime()
+        });
+        
+    } catch (error) {
+        console.error('❌ Errore test keep-alive:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Errore durante il test keep-alive',
+            error: error.message
+        });
+    }
 });
 
 app.get('/api/config', (req, res) => {
@@ -1455,6 +1556,7 @@ app.use(/^\/api\/.*/, (req, res) => {
             'GET /api/health',
             'GET /api/config',
             'GET /ping',
+            'GET /api/test-keepalive',
             'POST /api/test-google-meet-email',
             'POST /api/force-google-meet-email',
             'POST /api/send-discount-email',
@@ -1517,8 +1619,25 @@ async function startServer() {
             console.log(`... e altri ${Math.max(0, Object.keys(discountCodes).length - 5)} codici\n`);
 
             if (process.env.NODE_ENV === 'production') {
-                console.log('🏓 Keep-alive sistema attivo per Render (ping ogni 12 minuti)');
-                console.log(`🔗 Render URL configurato: ${process.env.RENDER_URL || 'Non configurato'}`);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log('🏓 KEEP-ALIVE SYSTEM STATUS');
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                console.log(`🌐 Render URL: ${process.env.RENDER_URL || 'NOT CONFIGURED'}`);
+                console.log(`⏰ Ping interval: Every 12 minutes`);
+                console.log(`🔧 Cron available: ${!!cron}`);
+                console.log(`🐛 Debug mode: ${process.env.DEBUG_KEEPALIVE === 'true' ? 'ENABLED' : 'DISABLED'}`);
+                console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+                
+                if (!process.env.RENDER_URL) {
+                    console.log('⚠️ WARNING: RENDER_URL not configured! Keep-alive will not work.');
+                    console.log('   Set RENDER_URL environment variable to your Render app URL');
+                }
+                
+                // Test immediato del keep-alive
+                setTimeout(() => {
+                    console.log('🧪 Testing keep-alive system in 5 seconds...');
+                    keepServerAlive();
+                }, 5000);
             }
         });
 
