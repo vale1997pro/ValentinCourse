@@ -11,7 +11,12 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ===== KEEP-ALIVE SYSTEM FOR RENDER =====
-const RENDER_URL = process.env.RENDER_URL || `http://localhost:${PORT}`;
+// Pulisce RENDER_URL se contiene il prefisso della variabile
+let RENDER_URL = process.env.RENDER_URL || `http://localhost:${PORT}`;
+if (RENDER_URL.startsWith('RENDER_URL=')) {
+    RENDER_URL = RENDER_URL.replace('RENDER_URL=', '');
+    console.log('⚠️ RENDER_URL conteneva il prefisso della variabile, rimosso automaticamente');
+}
 
 // Ping endpoint per keep-alive
 app.get('/ping', (req, res) => {
@@ -27,7 +32,7 @@ app.get('/ping', (req, res) => {
 
 // Keep-alive function con migliore gestione errori
 async function keepServerAlive() {
-    if (process.env.NODE_ENV === 'production' && process.env.RENDER_URL) {
+    if (process.env.NODE_ENV === 'production' && RENDER_URL && !RENDER_URL.includes('localhost')) {
         try {
             const response = await fetch(`${RENDER_URL}/ping`);
             
@@ -55,7 +60,7 @@ async function keepServerAlive() {
 // ✅ FIXED: Sistema keep-alive migliorato
 if (process.env.NODE_ENV === 'production') {
     console.log('🔄 Configurando keep-alive per Render (ogni 12 minuti)...');
-    console.log(`🌐 RENDER_URL configurato: ${process.env.RENDER_URL || 'NON CONFIGURATO'}`);
+    console.log(`🌐 RENDER_URL configurato: ${RENDER_URL}`);
 
     // Verifica che node-cron sia disponibile
     if (cron) {
@@ -458,7 +463,7 @@ const emailConfig = {
 
 let transporter;
 if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    transporter = nodemailer.createTransporter(emailConfig);
+    transporter = nodemailer.createTransport(emailConfig); // ✅ FIXED: createTransport instead of createTransporter
     console.log('📧 Email transporter configurato');
 }
 
@@ -1061,11 +1066,11 @@ app.get('/api/test-keepalive', async (req, res) => {
             });
         }
         
-        if (!process.env.RENDER_URL) {
+        if (!RENDER_URL || RENDER_URL.includes('localhost')) {
             return res.json({
                 success: false,
                 message: 'RENDER_URL non configurato',
-                renderUrl: process.env.RENDER_URL
+                renderUrl: RENDER_URL
             });
         }
         
@@ -1076,7 +1081,7 @@ app.get('/api/test-keepalive', async (req, res) => {
             success: true,
             message: 'Keep-alive ping eseguito con successo',
             timestamp: new Date().toISOString(),
-            renderUrl: process.env.RENDER_URL,
+            renderUrl: RENDER_URL,
             uptime: process.uptime()
         });
         
@@ -1622,13 +1627,13 @@ async function startServer() {
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 console.log('🏓 KEEP-ALIVE SYSTEM STATUS');
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-                console.log(`🌐 Render URL: ${process.env.RENDER_URL || 'NOT CONFIGURED'}`);
+                console.log(`🌐 Render URL: ${RENDER_URL}`);
                 console.log(`⏰ Ping interval: Every 12 minutes`);
                 console.log(`🔧 Cron available: ${!!cron}`);
                 console.log(`🐛 Debug mode: ${process.env.DEBUG_KEEPALIVE === 'true' ? 'ENABLED' : 'DISABLED'}`);
                 console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
                 
-                if (!process.env.RENDER_URL) {
+                if (!RENDER_URL || RENDER_URL.includes('localhost')) {
                     console.log('⚠️  WARNING: RENDER_URL not configured! Keep-alive will not work.');
                     console.log('   🔧 Set RENDER_URL environment variable to your Render app URL');
                     console.log('   📝 Example: https://your-app-name.onrender.com');
