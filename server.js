@@ -468,7 +468,6 @@ if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
 }
 
 // ===== TEMPLATE EMAIL MIGLIORATI =====
-
 function createBookingConfirmationTemplate(bookingData) {
     const date = new Date(bookingData.appointmentDate || new Date());
     const formattedDate = date.toLocaleDateString('it-IT', {
@@ -487,93 +486,139 @@ function createBookingConfirmationTemplate(bookingData) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Prenotazione Confermata</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-    <div style="max-width: 600px; margin: 0 auto; background: white;">
+<body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F8F6F3; color: #2D2D2D; line-height: 1.6;">
+    <div style="max-width: 600px; margin: 0 auto; background: #FEFCF9; box-shadow: 0 25px 50px -12px rgba(45, 45, 45, 0.25);">
         
-        <!-- Header -->
-        <div style="background: #2c3e50; color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">✅ Prenotazione Confermata</h1>
+        <!-- Header Elegante -->
+        <div style="background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); padding: 3rem 2rem; text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -50px; right: -50px; width: 100px; height: 100px; background: rgba(184, 160, 130, 0.1); border-radius: 50%;"></div>
+            <div style="position: absolute; bottom: -30px; left: -30px; width: 80px; height: 80px; background: rgba(184, 160, 130, 0.1); border-radius: 50%;"></div>
+            <div style="position: relative; z-index: 2;">
+                <div style="width: 60px; height: 60px; background: #5A6B4D; border-radius: 50%; margin: 0 auto 1.5rem; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">✓</div>
+                <h1 style="margin: 0; font-size: 1.75rem; font-weight: 300; color: #FEFCF9; letter-spacing: -0.02em;">Prenotazione Confermata</h1>
+                <p style="margin: 0.75rem 0 0 0; color: rgba(254, 252, 249, 0.8); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 500;">Consulenza VFX • Valentin Procida</p>
+            </div>
         </div>
         
         <!-- Content -->
-        <div style="padding: 30px;">
+        <div style="padding: 3rem 2rem;">
             
-            <h2 style="color: #2c3e50; margin-bottom: 20px;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
-            
-            <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
-                La tua consulenza VFX è stata confermata con successo. 
-                <strong>Riceverai il link Google Meet in una email separata tra pochi minuti.</strong>
-            </p>
-            
-            <!-- Appointment Details -->
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin-top: 0;">📅 Dettagli Appuntamento</h3>
-                <p style="margin: 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
-                <p style="margin: 10px 0;"><strong>Orario:</strong> ${bookingData.appointmentTime || 'Da confermare'}</p>
-                <p style="margin: 10px 0;"><strong>Durata:</strong> 90 minuti</p>
-                <p style="margin: 10px 0;"><strong>Modalità:</strong> Video chiamata Google Meet</p>
+            <div style="text-align: center; margin-bottom: 3rem;">
+                <h2 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 1.5rem; font-weight: 300; letter-spacing: -0.02em;">Ciao ${bookingData.customerName || bookingData.name}!</h2>
+                <p style="color: #6B6B6B; font-size: 1rem; line-height: 1.7; margin: 0; max-width: 400px; margin: 0 auto;">
+                    La tua consulenza VFX è stata confermata con successo. 
+                    <strong style="color: #2D2D2D;">Riceverai il link Google Meet in una email separata tra pochi minuti.</strong>
+                </p>
             </div>
             
-            <!-- Payment Details -->
-            <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin-top: 0;">💳 Pagamento</h3>
-                <p style="margin: 10px 0;"><strong>Importo:</strong> €${finalAmount}</p>
-                ${bookingData.discount ? `<p style="margin: 10px 0;"><strong>Sconto:</strong> ${bookingData.discount.code}</p>` : ''}
-                <p style="margin: 10px 0; color: #666; font-size: 12px;"><strong>ID:</strong> ${bookingData.paymentIntent || bookingData.paymentId}</p>
+            <!-- Appointment Card -->
+            <div style="background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 0; padding: 2rem; margin-bottom: 2rem; position: relative;">
+                <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #B8A082;"></div>
+                <div style="margin-left: 1rem;">
+                    <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;">Dettagli Appuntamento</h3>
+                    <div style="display: grid; gap: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Data</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">${formattedDate}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Orario</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">${bookingData.appointmentTime || 'Da confermare'}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Durata</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">90 minuti</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Modalità</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">Google Meet</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Payment Summary -->
+            <div style="background: rgba(122, 132, 113, 0.1); border: 1px solid #7A8471; border-radius: 0; padding: 2rem; margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;">Riepilogo Pagamento</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <span style="color: #6B6B6B; font-size: 0.875rem;">Consulenza VFX</span>
+                    <span style="color: #2D2D2D; font-weight: 600; font-size: 1.125rem;">€${finalAmount}</span>
+                </div>
+                ${bookingData.discount ? `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding: 0.75rem; background: rgba(122, 132, 113, 0.1); border-radius: 4px;">
+                    <span style="color: #7A8471; font-size: 0.875rem; font-weight: 500;">Sconto ${bookingData.discount.code}</span>
+                    <span style="color: #7A8471; font-weight: 600;">Applicato ✓</span>
+                </div>` : ''}
+                <div style="border-top: 1px solid #7A8471; padding-top: 1rem; margin-top: 1rem;">
+                    <span style="color: #6B6B6B; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px;">ID Transazione: ${bookingData.paymentIntent || bookingData.paymentId}</span>
+                </div>
             </div>
             
             <!-- Google Meet Notice -->
-            <div style="background: #8B2635; color: white; padding: 20px; border-radius: 8px; text-align: center; margin-bottom: 30px;">
-                <h3 style="color: white; margin-top: 0;">🎥 Link Google Meet</h3>
-                <p style="margin: 0; font-size: 16px;">
-                    <strong>Ti invieremo il link per la video chiamata in una email separata tra pochi minuti!</strong>
+            <div style="background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); color: #FEFCF9; padding: 2rem; border-radius: 0; text-align: center; margin-bottom: 2rem;">
+                <div style="width: 50px; height: 50px; background: rgba(184, 160, 130, 0.2); border-radius: 50%; margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">🎥</div>
+                <h3 style="color: #FEFCF9; margin: 0 0 1rem 0; font-size: 1.125rem; font-weight: 500;">Link Google Meet in Arrivo</h3>
+                <p style="margin: 0; opacity: 0.9; line-height: 1.6;">
+                    Ti invieremo il link per la video chiamata in una <strong>email separata tra pochi minuti</strong>.<br>
+                    Controlla la tua casella di posta!
                 </p>
-                <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 14px;">
-                    Controlla la tua casella di posta per l'email con il link Google Meet
-                </p>
             </div>
             
-            <!-- What to Expect -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50;">🎯 Cosa Aspettarsi</h3>
-                <ul style="color: #555; line-height: 1.6;">
-                    <li>Analisi completa del tuo portfolio VFX</li>
-                    <li>Roadmap personalizzata per la tua carriera</li>
-                    <li>Strategie concrete per entrare nell'industria</li>
-                    <li>Template CV e email ottimizzati</li>
-                    <li>Risorse e contatti utili</li>
-                    <li>Follow-up con materiali aggiuntivi</li>
-                </ul>
+            <!-- Preparation Section -->
+            <div style="margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; position: relative;">
+                    Preparazione Consigliata
+                    <div style="position: absolute; bottom: -0.5rem; left: 0; width: 60px; height: 1px; background: #B8A082;"></div>
+                </h3>
+                <div style="display: grid; gap: 1rem; margin-top: 2rem;">
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 24px; height: 24px; background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">📁</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Prepara il tuo portfolio/reel più recente</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 24px; height: 24px; background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">❓</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Elenca le tue domande specifiche</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 24px; height: 24px; background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">🎯</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Pensa ai tuoi obiettivi di carriera</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 24px; height: 24px; background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">📝</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Avere carta e penna per prendere note</span>
+                    </div>
+                </div>
             </div>
             
-            <!-- Preparation -->
-            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
-                <h3 style="color: #856404; margin-top: 0;">📋 Preparazione</h3>
-                <p style="color: #856404; margin-bottom: 15px;">Per massimizzare il valore della consulenza:</p>
-                <ul style="color: #856404; line-height: 1.6;">
-                    <li>Prepara il tuo portfolio/reel più recente</li>
-                    <li>Elenca le tue domande specifiche</li>
-                    <li>Pensa ai tuoi obiettivi di carriera</li>
-                    <li>Avere carta e penna per prendere note</li>
-                </ul>
-            </div>
-            
-            <div style="text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px;">
-                <p style="margin: 0; color: #666;">
-                    Se hai domande, rispondi pure a questa email!
+            <!-- Support -->
+            <div style="text-align: center; padding: 2rem; background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 0;">
+                <p style="margin: 0; color: #6B6B6B; font-size: 0.875rem; line-height: 1.6;">
+                    Hai domande? Rispondi pure a questa email.<br>
+                    <strong style="color: #2D2D2D;">Ci sentiamo presto!</strong>
                 </p>
             </div>
             
         </div>
         
         <!-- Footer -->
-        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
-            <p style="margin: 0;">
-                <strong>Valentin Procida</strong><br>
+        <div style="background: #1A1A1A; color: #FEFCF9; padding: 2rem; text-align: center;">
+            <div style="margin-bottom: 1rem;">
+                <strong style="font-size: 1.125rem; font-weight: 500;">Valentin Procida</strong>
+            </div>
+            <div style="color: rgba(254, 252, 249, 0.8); font-size: 0.875rem; line-height: 1.6;">
                 VFX Artist & Career Consultant<br>
-                <a href="https://www.valentinprocida.it" style="color: #74b9ff; text-decoration: none;">www.valentinprocida.it</a>
-            </p>
+                <a href="https://www.valentinprocida.it" style="color: #B8A082; text-decoration: none; font-weight: 500;">www.valentinprocida.it</a>
+            </div>
         </div>
     </div>
 </body>
@@ -606,77 +651,130 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Link Google Meet - Valentin Procida</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body style="margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f5f5f5;">
-    <div style="max-width: 600px; margin: 0 auto; background: white;">
+<body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F8F6F3; color: #2D2D2D; line-height: 1.6;">
+    <div style="max-width: 600px; margin: 0 auto; background: #FEFCF9; box-shadow: 0 25px 50px -12px rgba(45, 45, 45, 0.25);">
         
-        <!-- Header -->
-        <div style="background: #8B2635; color: white; padding: 30px; text-align: center;">
-            <h1 style="margin: 0; font-size: 24px;">🎥 Ecco il tuo Link Google Meet!</h1>
-            <p style="margin: 10px 0 0 0; opacity: 0.9;">Per la tua consulenza VFX</p>
+        <!-- Header Elegante -->
+        <div style="background: linear-gradient(135deg, #5A6B4D 0%, #7A8471 100%); padding: 3rem 2rem; text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -40px; right: -40px; width: 80px; height: 80px; background: rgba(254, 252, 249, 0.1); border-radius: 50%;"></div>
+            <div style="position: absolute; bottom: -20px; left: -20px; width: 60px; height: 60px; background: rgba(254, 252, 249, 0.1); border-radius: 50%;"></div>
+            <div style="position: relative; z-index: 2;">
+                <div style="width: 60px; height: 60px; background: rgba(254, 252, 249, 0.2); border: 2px solid rgba(254, 252, 249, 0.3); border-radius: 50%; margin: 0 auto 1.5rem; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">🎥</div>
+                <h1 style="margin: 0; font-size: 1.75rem; font-weight: 300; color: #FEFCF9; letter-spacing: -0.02em;">Google Meet Pronto!</h1>
+                <p style="margin: 0.75rem 0 0 0; color: rgba(254, 252, 249, 0.8); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 500;">Il tuo link è qui sotto</p>
+            </div>
         </div>
         
         <!-- Content -->
-        <div style="padding: 30px;">
+        <div style="padding: 3rem 2rem;">
             
-            <h2 style="color: #2c3e50; margin-bottom: 20px;">Ciao ${bookingData.customerName}!</h2>
-            
-            <p style="color: #555; line-height: 1.6; margin-bottom: 30px;">
-                Perfetto! La tua prenotazione è completa e il link per la video chiamata è pronto. 
-                <strong>Salva questa email e usa il link qui sotto per unirti alla chiamata.</strong>
-            </p>
-            
-            <!-- Google Meet Link -->
-            <div style="background: #8B2635; color: white; padding: 30px; text-align: center; border-radius: 8px; margin: 30px 0;">
-                <h3 style="margin: 0 0 20px 0;">🔗 Link Google Meet</h3>
-                <a href="${meetingInfo.meetLink}" 
-                   style="background: white; color: #8B2635; padding: 15px 30px; text-decoration: none; 
-                          border-radius: 25px; font-weight: bold; font-size: 16px; display: inline-block;">
-                    🎥 Unisciti alla Video Chiamata
-                </a>
-                <p style="margin: 20px 0 0 0; opacity: 0.9; font-size: 14px;">
-                    Clicca sul link 5-10 minuti prima dell'appuntamento
+            <div style="text-align: center; margin-bottom: 3rem;">
+                <h2 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 1.5rem; font-weight: 300; letter-spacing: -0.02em;">Ciao ${bookingData.customerName}!</h2>
+                <p style="color: #6B6B6B; font-size: 1rem; line-height: 1.7; margin: 0; max-width: 400px; margin: 0 auto;">
+                    La tua prenotazione è completa! Usa il link qui sotto per unirti alla video chiamata. 
+                    <strong style="color: #2D2D2D;">Salva questa email.</strong>
                 </p>
             </div>
             
-            <!-- Meeting Details -->
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #2c3e50; margin-top: 0;">📅 Dettagli Appuntamento</h3>
-                <p style="margin: 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
-                <p style="margin: 10px 0;"><strong>Orario:</strong> ${startTime} - ${endTime}</p>
-                <p style="margin: 10px 0;"><strong>Fuso Orario:</strong> Europe/Rome (GMT+1)</p>
-                <p style="margin: 10px 0;"><strong>Durata:</strong> 90 minuti</p>
+            <!-- Google Meet Link prominente -->
+            <div style="background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); border-radius: 0; padding: 3rem 2rem; text-align: center; margin-bottom: 3rem; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -30px; right: -30px; width: 60px; height: 60px; background: rgba(184, 160, 130, 0.1); border-radius: 50%;"></div>
+                <div style="position: relative; z-index: 2;">
+                    <h3 style="margin: 0 0 2rem 0; color: #FEFCF9; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;">Link Video Chiamata</h3>
+                    <a href="${meetingInfo.meetLink}" 
+                       style="background: #FEFCF9; color: #1A1A1A; padding: 1.25rem 2.5rem; text-decoration: none; 
+                              border-radius: 0; font-weight: 600; font-size: 1rem; display: inline-block; 
+                              text-transform: uppercase; letter-spacing: 1px; border: 2px solid transparent; 
+                              transition: all 0.3s ease;">
+                        🎥 Unisciti alla Chiamata
+                    </a>
+                    <p style="margin: 2rem 0 0 0; color: rgba(254, 252, 249, 0.8); font-size: 0.875rem;">
+                        Clicca 5-10 minuti prima dell'appuntamento
+                    </p>
+                </div>
             </div>
             
-            <!-- Calendar Button -->
-            <div style="text-align: center; margin: 30px 0;">
+            <!-- Meeting Schedule -->
+            <div style="background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 0; padding: 2rem; margin-bottom: 2rem; position: relative;">
+                <div style="position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: #5A6B4D;"></div>
+                <div style="margin-left: 1rem;">
+                    <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;">Programma</h3>
+                    <div style="display: grid; gap: 1rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Data</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">${formattedDate}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Orario</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">${startTime} - ${endTime}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid #E8E6E3;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Fuso Orario</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">Europe/Rome (GMT+1)</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0;">
+                            <span style="color: #6B6B6B; font-size: 0.875rem; font-weight: 500;">Durata</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">90 minuti</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Calendar Integration -->
+            <div style="text-align: center; margin-bottom: 2rem;">
                 <a href="${meetingInfo.eventLink}" 
-                   style="background: #1a1a1a; color: white; padding: 12px 25px; text-decoration: none; 
-                          border-radius: 25px; font-weight: bold; display: inline-block;">
-                    📅 Visualizza nel Google Calendar
+                   style="background: transparent; color: #2D2D2D; padding: 1rem 2rem; text-decoration: none; 
+                          border: 2px solid #E8E6E3; border-radius: 0; font-weight: 500; display: inline-block; 
+                          text-transform: uppercase; letter-spacing: 1px; font-size: 0.875rem;">
+                    📅 Apri nel Google Calendar
                 </a>
-                <p style="color: #666; margin: 15px 0 0 0; font-size: 14px;">
-                    L'evento è stato automaticamente aggiunto al tuo calendario
+                <p style="color: #9B9B9B; margin: 1rem 0 0 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px;">
+                    Evento automaticamente aggiunto
                 </p>
             </div>
             
-            <!-- Important Notes -->
-            <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 30px 0;">
-                <h3 style="color: #856404; margin-top: 0;">📋 Note Importanti</h3>
-                <ul style="color: #856404; line-height: 1.6; margin: 0; padding-left: 20px;">
-                    <li>Salva questa email con il link Google Meet</li>
-                    <li>Testa audio e video prima dell'appuntamento</li>
-                    <li>Preparti in un ambiente silenzioso</li>
-                    <li>Tieni pronto il tuo portfolio</li>
-                </ul>
+            <!-- Checklist -->
+            <div style="margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; position: relative;">
+                    Checklist Pre-Chiamata
+                    <div style="position: absolute; bottom: -0.5rem; left: 0; width: 60px; height: 1px; background: #B8A082;"></div>
+                </h3>
+                <div style="display: grid; gap: 1rem; margin-top: 2rem;">
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 20px; height: 20px; background: transparent; border: 2px solid #E8E6E3; border-radius: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">✓</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Salva questa email con il link</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 20px; height: 20px; background: transparent; border: 2px solid #E8E6E3; border-radius: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">✓</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Testa audio e video</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 20px; height: 20px; background: transparent; border: 2px solid #E8E6E3; border-radius: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">✓</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Ambiente silenzioso</span>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 1rem;">
+                        <div style="width: 20px; height: 20px; background: transparent; border: 2px solid #E8E6E3; border-radius: 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 0.125rem;">
+                            <span style="font-size: 0.75rem; color: #6B6B6B;">✓</span>
+                        </div>
+                        <span style="color: #6B6B6B; line-height: 1.6;">Portfolio pronto</span>
+                    </div>
+                </div>
             </div>
             
             <!-- Support -->
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center;">
-                <p style="margin: 0; color: #666; font-size: 14px;">
-                    <strong>Problemi tecnici?</strong><br>
-                    Contattami immediatamente a 
-                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" style="color: #8B2635;">
+            <div style="text-align: center; padding: 2rem; background: rgba(197, 83, 74, 0.05); border: 1px solid rgba(197, 83, 74, 0.2); border-radius: 0;">
+                <p style="margin: 0; color: #6B6B6B; font-size: 0.875rem; line-height: 1.6;">
+                    <strong style="color: #2D2D2D;">Problemi tecnici?</strong><br>
+                    Contattami subito: 
+                    <a href="mailto:${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}" style="color: #C5534A; text-decoration: none; font-weight: 500;">
                         ${process.env.ADMIN_EMAIL || process.env.EMAIL_USER}
                     </a>
                 </p>
@@ -685,12 +783,14 @@ function createMeetingLinkEmailTemplate(bookingData, meetingInfo) {
         </div>
         
         <!-- Footer -->
-        <div style="background: #1a1a1a; color: white; padding: 20px; text-align: center;">
-            <p style="margin: 0;">
-                <strong>Valentin Procida</strong><br>
+        <div style="background: #1A1A1A; color: #FEFCF9; padding: 2rem; text-align: center;">
+            <div style="margin-bottom: 1rem;">
+                <strong style="font-size: 1.125rem; font-weight: 500;">Valentin Procida</strong>
+            </div>
+            <div style="color: rgba(254, 252, 249, 0.8); font-size: 0.875rem; line-height: 1.6;">
                 VFX Artist & Career Consultant<br>
-                <a href="https://www.valentinprocida.it" style="color: #8B2635; text-decoration: none;">www.valentinprocida.it</a>
-            </p>
+                <a href="https://www.valentinprocida.it" style="color: #B8A082; text-decoration: none; font-weight: 500;">www.valentinprocida.it</a>
+            </div>
         </div>
     </div>
 </body>
@@ -705,71 +805,79 @@ function createDiscountEmailTemplate(name, discountCode, discountAmount) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Your Discount Code - Valentin Procida</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); min-height: 100vh;">
-    
-    <div style="max-width: 600px; margin: 0 auto; background: white; box-shadow: 0 20px 60px rgba(0,0,0,0.1);">
+<body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F8F6F3; color: #2D2D2D; line-height: 1.6;">
+    <div style="max-width: 600px; margin: 0 auto; background: #FEFCF9; box-shadow: 0 25px 50px -12px rgba(45, 45, 45, 0.25);">
         
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); padding: 50px 40px; text-align: center;">
-            <div style="background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; border: 1px solid rgba(255,255,255,0.2);">
-                <h1 style="color: white; margin: 0; font-size: 28px; font-weight: 300; letter-spacing: 1px;">🎉 Your Discount Code is Ready!</h1>
-                <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px; font-weight: 300;">Exclusive ${discountAmount}% discount for VFX consultation</p>
+        <!-- Header Elegante -->
+        <div style="background: linear-gradient(135deg, #B8A082 0%, #D4D2CF 100%); padding: 3rem 2rem; text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -50px; right: -50px; width: 100px; height: 100px; background: rgba(26, 26, 26, 0.1); border-radius: 50%;"></div>
+            <div style="position: absolute; bottom: -30px; left: -30px; width: 80px; height: 80px; background: rgba(26, 26, 26, 0.1); border-radius: 50%;"></div>
+            <div style="position: relative; z-index: 2;">
+                <div style="width: 60px; height: 60px; background: rgba(26, 26, 26, 0.1); border: 2px solid rgba(26, 26, 26, 0.2); border-radius: 50%; margin: 0 auto 1.5rem; display: flex; align-items: center; justify-content: center; font-size: 1.5rem;">🎉</div>
+                <h1 style="margin: 0; font-size: 1.75rem; font-weight: 300; color: #1A1A1A; letter-spacing: -0.02em;">Your Discount is Ready!</h1>
+                <p style="margin: 0.75rem 0 0 0; color: rgba(26, 26, 26, 0.7); font-size: 0.875rem; text-transform: uppercase; letter-spacing: 1px; font-weight: 500;">Exclusive ${discountAmount}% VFX Consultation Discount</p>
             </div>
         </div>
         
         <!-- Content -->
-        <div style="padding: 50px 40px;">
+        <div style="padding: 3rem 2rem;">
             
-            <div style="text-align: center; margin-bottom: 40px;">
-                <h2 style="color: #2c3e50; margin: 0 0 15px 0; font-size: 24px; font-weight: 400;">${name ? `Hi ${name}!` : 'Hello!'}</h2>
-                <p style="color: #7f8c8d; font-size: 16px; line-height: 1.6; margin: 0;">
-                    Thank you for your interest in my VFX consultation services! Here's your exclusive discount code:
+            <div style="text-align: center; margin-bottom: 3rem;">
+                <h2 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 1.5rem; font-weight: 300; letter-spacing: -0.02em;">${name ? `Hi ${name}!` : 'Hello!'}</h2>
+                <p style="color: #6B6B6B; font-size: 1rem; line-height: 1.7; margin: 0; max-width: 400px; margin: 0 auto;">
+                    Thank you for your interest in my VFX consultation services! 
+                    <strong style="color: #2D2D2D;">Here's your exclusive discount code:</strong>
                 </p>
             </div>
             
-            <!-- Discount Code Box -->
-            <div style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%); border-radius: 20px; padding: 40px; text-align: center; margin: 30px 0; position: relative; overflow: hidden;">
-                <div style="position: absolute; top: -30px; right: -30px; width: 80px; height: 80px; background: rgba(255,255,255,0.1); border-radius: 50%;"></div>
-                <div style="position: relative; z-index: 1;">
-                    <p style="color: rgba(255,255,255,0.9); margin: 0 0 10px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 1px;">Your Discount Code</p>
-                    <div style="background: white; color: #ff6b6b; padding: 20px; border-radius: 15px; margin: 20px 0; font-size: 32px; font-weight: bold; letter-spacing: 3px; word-break: break-all;">${discountCode}</div>
-                    <p style="color: white; margin: 10px 0 0 0; font-size: 18px; font-weight: 600;">Save ${discountAmount}% on your VFX consultation</p>
+            <!-- Discount Code prominente -->
+            <div style="background: linear-gradient(135deg, #1A1A1A 0%, #2D2D2D 100%); border-radius: 0; padding: 3rem 2rem; text-align: center; margin-bottom: 3rem; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: -40px; right: -40px; width: 80px; height: 80px; background: rgba(184, 160, 130, 0.1); border-radius: 50%;"></div>
+                <div style="position: relative; z-index: 2;">
+                    <p style="color: rgba(254, 252, 249, 0.8); margin: 0 0 1rem 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 600;">Your Discount Code</p>
+                    <div style="background: #FEFCF9; color: #1A1A1A; padding: 1.5rem 2rem; border-radius: 0; margin: 1.5rem 0; font-size: 2rem; font-weight: 700; letter-spacing: 4px; font-family: 'Courier New', monospace; border: 2px solid #E8E6E3;">${discountCode}</div>
+                    <p style="color: #FEFCF9; margin: 1rem 0 0 0; font-size: 1.125rem; font-weight: 500;">Save ${discountAmount}% on your VFX consultation</p>
                 </div>
             </div>
             
             <!-- CTA Button -->
-            <div style="text-align: center; margin: 40px 0;">
+            <div style="text-align: center; margin-bottom: 3rem;">
                 <a href="https://www.valentinprocida.it/buy.html" 
-                   style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 20px 40px; text-decoration: none; 
-                          border-radius: 50px; font-weight: 600; font-size: 18px; display: inline-block;
-                          box-shadow: 0 10px 30px rgba(44, 62, 80, 0.3); letter-spacing: 1px;">
+                   style="background: #5A6B4D; color: #FEFCF9; padding: 1.25rem 2.5rem; text-decoration: none; 
+                          border-radius: 0; font-weight: 600; font-size: 1rem; display: inline-block;
+                          text-transform: uppercase; letter-spacing: 1px; border: 2px solid transparent;">
                     🚀 Book Your Consultation Now
                 </a>
+                <p style="color: #9B9B9B; margin: 1rem 0 0 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px;">
+                    Limited time offer
+                </p>
             </div>
             
             <!-- Instructions -->
-            <div style="background: #f8f9fa; border-radius: 15px; padding: 30px; margin: 30px 0;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; text-align: center;">How to Use Your Code</h3>
-                <div style="display: grid; gap: 15px;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">1</span>
-                        <span style="color: #2c3e50;">Visit the consultation booking page</span>
+            <div style="background: #F8F6F3; border: 1px solid #E8E6E3; border-radius: 0; padding: 2rem; margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1.5rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; text-align: center;">How to Use Your Code</h3>
+                <div style="display: grid; gap: 1.5rem; margin-top: 2rem;">
+                    <div style="display: flex; align-items: center; gap: 1.5rem;">
+                        <div style="width: 32px; height: 32px; background: #5A6B4D; color: #FEFCF9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem;">1</div>
+                        <span style="color: #2D2D2D; line-height: 1.6; font-weight: 500;">Visit the consultation booking page</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">2</span>
-                        <span style="color: #2c3e50;">Enter code <strong>${discountCode}</strong> at checkout</span>
+                    <div style="display: flex; align-items: center; gap: 1.5rem;">
+                        <div style="width: 32px; height: 32px; background: #5A6B4D; color: #FEFCF9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem;">2</div>
+                        <span style="color: #2D2D2D; line-height: 1.6;">Enter code <strong style="font-family: 'Courier New', monospace; background: #E8E6E3; padding: 0.25rem 0.5rem; border-radius: 2px;">${discountCode}</strong> at checkout</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="background: #ff6b6b; color: white; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0;">3</span>
-                        <span style="color: #2c3e50;">Enjoy your ${discountAmount}% discount!</span>
+                    <div style="display: flex; align-items: center; gap: 1.5rem;">
+                        <div style="width: 32px; height: 32px; background: #5A6B4D; color: #FEFCF9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.875rem;">3</div>
+                        <span style="color: #2D2D2D; line-height: 1.6; font-weight: 500;">Enjoy your ${discountAmount}% discount!</span>
                     </div>
                 </div>
             </div>
             
-            <div style="text-align: center; padding: 20px; background: #fff3cd; border-radius: 15px; border-left: 5px solid #ffc107;">
-                <p style="color: #856404; margin: 0; font-size: 14px;">
-                    ⏰ <strong>This code expires in 30 days.</strong><br>
+            <!-- Expiration Notice -->
+            <div style="text-align: center; padding: 2rem; background: rgba(197, 83, 74, 0.05); border: 1px solid rgba(197, 83, 74, 0.2); border-radius: 0;">
+                <p style="color: #6B6B6B; margin: 0; font-size: 0.875rem; line-height: 1.6;">
+                    ⏰ <strong style="color: #C5534A;">This code expires in 30 days.</strong><br>
                     Questions? Reply to this email and I'll help you out!
                 </p>
             </div>
@@ -777,16 +885,18 @@ function createDiscountEmailTemplate(name, discountCode, discountAmount) {
         </div>
         
         <!-- Footer -->
-        <div style="background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%); color: white; padding: 40px; text-align: center;">
-            <h3 style="margin: 0 0 10px 0; font-size: 20px; font-weight: 400;">Best regards,</h3>
-            <p style="margin: 0 0 20px 0; color: rgba(255,255,255,0.8); font-size: 16px;">
-                <strong>Valentin Procida</strong><br>
+        <div style="background: #1A1A1A; color: #FEFCF9; padding: 2rem; text-align: center;">
+            <div style="margin-bottom: 1rem;">
+                <h3 style="margin: 0 0 0.5rem 0; font-size: 1.125rem; font-weight: 500;">Best regards,</h3>
+                <strong style="font-size: 1.25rem; font-weight: 600;">Valentin Procida</strong>
+            </div>
+            <div style="color: rgba(254, 252, 249, 0.8); font-size: 0.875rem; line-height: 1.6; margin-bottom: 1.5rem;">
                 VFX Artist & Rigger
-            </p>
-            <div style="display: flex; justify-content: center; gap: 20px;">
-                <a href="https://www.linkedin.com/in/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">LinkedIn</a>
-                <a href="https://vimeo.com/valentinprocida" style="color: rgba(255,255,255,0.9); text-decoration: none;">Vimeo</a>
-                <a href="https://www.valentinprocida.it" style="color: rgba(255,255,255,0.9); text-decoration: none;">Website</a>
+            </div>
+            <div style="display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap;">
+                <a href="https://www.linkedin.com/in/valentinprocida" style="color: #B8A082; text-decoration: none; font-size: 0.875rem; font-weight: 500;">LinkedIn</a>
+                <a href="https://vimeo.com/valentinprocida" style="color: #B8A082; text-decoration: none; font-size: 0.875rem; font-weight: 500;">Vimeo</a>
+                <a href="https://www.valentinprocida.it" style="color: #B8A082; text-decoration: none; font-size: 0.875rem; font-weight: 500;">Website</a>
             </div>
         </div>
     </div>
@@ -812,71 +922,130 @@ function createAdminNotificationTemplate(bookingData) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>New Booking - Admin Notification</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f8f9fa;">
-    <div style="max-width: 600px; margin: 0 auto; background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.1);">
+<body style="margin: 0; padding: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #F8F6F3; color: #2D2D2D; line-height: 1.6;">
+    <div style="max-width: 600px; margin: 0 auto; background: #FEFCF9; box-shadow: 0 25px 50px -12px rgba(45, 45, 45, 0.25);">
         
-        <!-- Header -->
-        <div style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%); padding: 40px; text-align: center;">
-            <h1 style="color: white; margin: 0; font-size: 24px; font-weight: 600;">🎯 Nuova Prenotazione Ricevuta</h1>
-            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0;">Sistema di prenotazioni VFX</p>
+        <!-- Header Admin -->
+        <div style="background: linear-gradient(135deg, #7A8471 0%, #5A6B4D 100%); padding: 2rem; text-align: center; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -30px; right: -30px; width: 60px; height: 60px; background: rgba(254, 252, 249, 0.1); border-radius: 50%;"></div>
+            <div style="position: relative; z-index: 2;">
+                <div style="width: 50px; height: 50px; background: rgba(254, 252, 249, 0.2); border-radius: 50%; margin: 0 auto 1rem; display: flex; align-items: center; justify-content: center; font-size: 1.25rem;">🎯</div>
+                <h1 style="margin: 0; font-size: 1.5rem; font-weight: 600; color: #FEFCF9;">Nuova Prenotazione</h1>
+                <p style="margin: 0.5rem 0 0 0; color: rgba(254, 252, 249, 0.8); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px;">Sistema VFX Booking</p>
+            </div>
         </div>
         
-        <!-- Content -->
-        <div style="padding: 40px;">
+        <!-- Content Admin -->
+        <div style="padding: 2rem;">
             
-            <!-- Customer Info -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #28a745; padding-bottom: 10px;">👤 Informazioni Cliente</h3>
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
-                    <p style="margin: 0 0 10px 0;"><strong>Nome:</strong> ${bookingData.customerName || bookingData.name}</p>
-                    <p style="margin: 0 0 10px 0;"><strong>Email:</strong> <a href="mailto:${bookingData.customerEmail || bookingData.email}" style="color: #28a745;">${bookingData.customerEmail || bookingData.email}</a></p>
-                    <p style="margin: 0 0 10px 0;"><strong>Telefono:</strong> <a href="tel:${bookingData.customerPhone || bookingData.phone}" style="color: #28a745;">${bookingData.customerPhone || bookingData.phone}</a></p>
-                    ${bookingData.company ? `<p style="margin: 0;"><strong>Azienda:</strong> ${bookingData.company}</p>` : ''}
+            <!-- Customer Section -->
+            <div style="margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; position: relative;">
+                    👤 Cliente
+                    <div style="position: absolute; bottom: -0.25rem; left: 0; width: 40px; height: 1px; background: #7A8471;"></div>
+                </h3>
+                <div style="background: #F8F6F3; border-left: 4px solid #7A8471; padding: 1.5rem; margin-top: 1rem;">
+                    <div style="display: grid; gap: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Nome:</span>
+                            <span style="color: #2D2D2D; font-weight: 600;">${bookingData.customerName || bookingData.name}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Email:</span>
+                            <a href="mailto:${bookingData.customerEmail || bookingData.email}" style="color: #7A8471; text-decoration: none; font-weight: 500;">${bookingData.customerEmail || bookingData.email}</a>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Telefono:</span>
+                            <a href="tel:${bookingData.customerPhone || bookingData.phone}" style="color: #7A8471; text-decoration: none; font-weight: 500;">${bookingData.customerPhone || bookingData.phone}</a>
+                        </div>
+                        ${bookingData.company ? `
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Azienda:</span>
+                            <span style="color: #2D2D2D; font-weight: 600;">${bookingData.company}</span>
+                        </div>` : ''}
+                    </div>
                 </div>
             </div>
             
-            <!-- Appointment Details -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #007bff; padding-bottom: 10px;">📅 Dettagli Appuntamento</h3>
-                <div style="background: #e3f2fd; padding: 20px; border-radius: 10px;">
-                    <p style="margin: 0 0 10px 0;"><strong>Data:</strong> ${formattedDate}</p>
-                    <p style="margin: 0 0 10px 0;"><strong>Orario:</strong> ${bookingData.appointmentTime || 'Non specificato'}</p>
-                    <p style="margin: 0;"><strong>Durata:</strong> 90 minuti</p>
+            <!-- Appointment Section -->
+            <div style="margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; position: relative;">
+                    📅 Appuntamento
+                    <div style="position: absolute; bottom: -0.25rem; left: 0; width: 40px; height: 1px; background: #B8A082;"></div>
+                </h3>
+                <div style="background: rgba(184, 160, 130, 0.1); border-left: 4px solid #B8A082; padding: 1.5rem; margin-top: 1rem;">
+                    <div style="display: grid; gap: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Data:</span>
+                            <span style="color: #2D2D2D; font-weight: 600;">${formattedDate}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Orario:</span>
+                            <span style="color: #2D2D2D; font-weight: 600;">${bookingData.appointmentTime || 'Non specificato'}</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Durata:</span>
+                            <span style="color: #2D2D2D; font-weight: 600;">90 minuti</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <!-- Payment Details -->
-            <div style="margin-bottom: 30px;">
-                <h3 style="color: #2c3e50; margin: 0 0 20px 0; font-size: 18px; border-bottom: 2px solid #ffc107; padding-bottom: 10px;">💰 Dettagli Pagamento</h3>
-                <div style="background: #fff3cd; padding: 20px; border-radius: 10px;">
-                    <p style="margin: 0 0 10px 0;"><strong>Importo:</strong> €${finalAmount}</p>
-                    ${bookingData.discount ? `<p style="margin: 0 0 10px 0;"><strong>Sconto:</strong> ${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})</p>` : ''}
-                    <p style="margin: 0 0 10px 0;"><strong>ID Stripe:</strong> <code style="background: #f8f9fa; padding: 2px 6px; border-radius: 4px; font-size: 12px;">${bookingData.paymentIntent || bookingData.paymentId}</code></p>
-                    <p style="margin: 0;"><strong>Data pagamento:</strong> ${new Date().toLocaleString('it-IT')}</p>
+            <!-- Payment Section -->
+            <div style="margin-bottom: 2rem;">
+                <h3 style="color: #2D2D2D; margin: 0 0 1rem 0; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; position: relative;">
+                    💰 Pagamento
+                    <div style="position: absolute; bottom: -0.25rem; left: 0; width: 40px; height: 1px; background: #7A8471;"></div>
+                </h3>
+                <div style="background: rgba(122, 132, 113, 0.1); border-left: 4px solid #7A8471; padding: 1.5rem; margin-top: 1rem;">
+                    <div style="display: grid; gap: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Importo:</span>
+                            <span style="color: #2D2D2D; font-weight: 700; font-size: 1.125rem;">€${finalAmount}</span>
+                        </div>
+                        ${bookingData.discount ? `
+                        <div style="display: flex; justify-content: space-between;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Sconto:</span>
+                            <span style="color: #7A8471; font-weight: 600;">${bookingData.discount.code} (-€${(bookingData.discount.discountAmount / 100).toFixed(2)})</span>
+                        </div>` : ''}
+                        <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                            <span style="color: #6B6B6B; font-weight: 500;">ID Stripe:</span>
+                            <code style="background: #E8E6E3; padding: 0.25rem 0.5rem; border-radius: 2px; font-size: 0.75rem; color: #2D2D2D;">${bookingData.paymentIntent || bookingData.paymentId}</code>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.875rem;">
+                            <span style="color: #6B6B6B; font-weight: 500;">Timestamp:</span>
+                            <span style="color: #2D2D2D; font-weight: 500;">${new Date().toLocaleString('it-IT')}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             
             <!-- Quick Actions -->
-            <div style="text-align: center;">
+            <div style="text-align: center; gap: 1rem; display: flex; flex-wrap: wrap; justify-content: center;">
                 ${process.env.GOOGLE_SPREADSHEET_ID ? `
                 <a href="https://docs.google.com/spreadsheets/d/${process.env.GOOGLE_SPREADSHEET_ID}" 
-                   style="background: #28a745; color: white; padding: 12px 25px; text-decoration: none; 
-                          border-radius: 25px; font-weight: 600; display: inline-block; margin: 5px;">
+                   style="background: #7A8471; color: #FEFCF9; padding: 0.75rem 1.5rem; text-decoration: none; 
+                          border-radius: 0; font-weight: 600; display: inline-block; font-size: 0.875rem;
+                          text-transform: uppercase; letter-spacing: 1px;">
                     📊 Google Sheets
                 </a>` : ''}
                 <a href="mailto:${bookingData.customerEmail || bookingData.email}" 
-                   style="background: #007bff; color: white; padding: 12px 25px; text-decoration: none; 
-                          border-radius: 25px; font-weight: 600; display: inline-block; margin: 5px;">
-                    📧 Rispondi Cliente
+                   style="background: #1A1A1A; color: #FEFCF9; padding: 0.75rem 1.5rem; text-decoration: none; 
+                          border-radius: 0; font-weight: 600; display: inline-block; font-size: 0.875rem;
+                          text-transform: uppercase; letter-spacing: 1px;">
+                    📧 Email Cliente
                 </a>
             </div>
             
         </div>
         
-        <!-- Footer -->
-        <div style="background: #2c3e50; color: white; padding: 20px; text-align: center;">
-            <p style="margin: 0; font-size: 14px;">Sistema di Prenotazione VFX Consulting - Powered by Valentin Procida</p>
+        <!-- Footer Admin -->
+        <div style="background: #1A1A1A; color: #FEFCF9; padding: 1.5rem; text-align: center;">
+            <p style="margin: 0; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: rgba(254, 252, 249, 0.6);">
+                Sistema VFX Booking • Powered by Valentin Procida
+            </p>
         </div>
     </div>
 </body>
