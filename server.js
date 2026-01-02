@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const cors = require('cors');
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 const { google } = require('googleapis');
 const cron = require('node-cron');
 
@@ -670,22 +670,33 @@ let discountCodes = {
     }
 };
 
-// ===== CONFIGURAZIONE EMAIL =====
-const emailConfig = {
-    service: 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD
-    }
-};
-
-let transporter;
-if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
-    // ✅ CORRETTO: createTransport (senza la "r")
-    transporter = nodemailer.createTransport(emailConfig);
-    console.log('📧 Email transporter configurato');
+// ===== CONFIGURAZIONE EMAIL CON RESEND =====
+let resend;
+if (process.env.RESEND_API_KEY) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+    console.log('📧 Resend email configurato');
 } else {
-    console.warn('⚠️ Credenziali email non configurate - servizio email disabilitato');
+    console.warn('⚠️ RESEND_API_KEY non configurata - servizio email disabilitato');
+}
+
+// Funzione helper per inviare email con Resend
+async function sendEmail(options) {
+    if (!resend) {
+        throw new Error('Resend non configurato');
+    }
+    
+    const { data, error } = await resend.emails.send({
+        from: options.from || `Valentin Procida <${process.env.EMAIL_FROM || 'onboarding@resend.dev'}>`,
+        to: Array.isArray(options.to) ? options.to : [options.to],
+        subject: options.subject,
+        html: options.html
+    });
+    
+    if (error) {
+        throw new Error(error.message);
+    }
+    
+    return data;
 }
 // ===== EMAIL TEMPLATES =====
 function createBookingConfirmationTemplate(bookingData) {
@@ -1169,24 +1180,18 @@ function scheduleReminderEmail(bookingData, meetingInfo, sendImmediately = true)
 async function sendMeetingLinkEmail(bookingData, meetingInfo) {
     console.log('📧 sendMeetingLinkEmail chiamata per:', bookingData.customerEmail);
 
-    if (!transporter) {
-        console.error('❌ Transporter email non disponibile');
+    if (!resend) {
+        console.error('❌ Resend non configurato');
         return;
     }
 
     try {
-        const mailOptions = {
-            from: {
-                name: 'Valentin Procida',
-                address: process.env.EMAIL_USER
-            },
+        console.log('📧 Invio email Google Meet a:', bookingData.customerEmail);
+        await sendEmail({
             to: bookingData.customerEmail,
             subject: `🎥 Link Google Meet per la tua consulenza VFX - ${new Date(bookingData.appointmentDate).toLocaleDateString('it-IT')}`,
             html: createMeetingLinkEmailTemplate(bookingData, meetingInfo)
-        };
-
-        console.log('📧 Invio email Google Meet a:', bookingData.customerEmail);
-        await transporter.sendMail(mailOptions);
+        });
         console.log(`✅ Email Google Meet inviata con successo a ${bookingData.customerEmail}`);
 
     } catch (error) {
@@ -1319,7 +1324,7 @@ app.get('/api/health', async (req, res) => {
 
         // Configurazioni esistenti
         totalDiscountCodes: Object.keys(discountCodes).length,
-        emailConfigured: !!transporter,
+        emailConfigured: !!resend,
         googleSheetsConfigured: !!sheets,
         googleCalendarConfigured: !!calendar,
 
@@ -1494,7 +1499,7 @@ app.post('/api/send-discount-email', async (req, res) => {
             return res.status(400).json({ error: 'Email richiesta' });
         }
 
-        if (!transporter) {
+        if (!resend) {
             return res.status(500).json({ error: 'Servizio email non configurato' });
         }
 
@@ -1524,31 +1529,11 @@ app.post('/api/send-discount-email', async (req, res) => {
 
         const recipientName = name || extractNameFromEmail(email);
 
-        const mailOptions = {
-            from: {
-                name: 'Valentin Procida',
-                address: process.env.EMAIL_USER
-            },
+        await sendEmail({
             to: email,
             subject: '🎉 Your 10% Discount Code - VFX Consultation',
-            html: createDiscountEmailTemplate(recipientName, newCode.code, 10),
-            text: `
-Hi ${recipientName || 'there'}!
-
-Thank you for your interest in my VFX consultation services!
-
-Your discount code: ${newCode.code}
-This code gives you 10% off your consultation.
-
-Book now: https://www.valentinprocida.it/buy.html
-
-Best regards,
-Valentin Procida
-VFX Artist & Rigger
-            `
-        };
-
-        await transporter.sendMail(mailOptions);
+            html: createDiscountEmailTemplate(recipientName, newCode.code, 10)
+        });
 
         console.log(`✅ Codice sconto ${newCode.code} generato e inviato a ${email}`);
 
@@ -1684,18 +1669,12 @@ app.post('/api/booking-confirmation', async (req, res) => {
 
         const meetingInfo = await createGoogleMeetEvent(bookingData);
 
-        if (transporter) {
-            const customerMailOptions = {
-                from: {
-                    name: 'Valentin Procida',
-                    address: process.env.EMAIL_USER
-                },
+        if (resend) {
+            await sendEmail({
                 to: bookingData.customerEmail || bookingData.email,
                 subject: '✅ Consulenza VFX Confermata - Valentin Procida',
                 html: createBookingConfirmationTemplate(bookingData)
-            };
-
-            await transporter.sendMail(customerMailOptions);
+            });
             console.log('📧 Email di conferma inviata al cliente');
 
             if (meetingInfo) {
@@ -1703,18 +1682,12 @@ app.post('/api/booking-confirmation', async (req, res) => {
             }
         }
 
-        if (transporter && process.env.ADMIN_EMAIL) {
-            const adminMailOptions = {
-                from: {
-                    name: 'Sistema Prenotazioni',
-                    address: process.env.EMAIL_USER
-                },
+        if (resend && process.env.ADMIN_EMAIL) {
+            await sendEmail({
                 to: process.env.ADMIN_EMAIL,
                 subject: `🎯 Nuova Prenotazione: ${bookingData.customerName || bookingData.name} - ${bookingData.appointmentDate || 'Data da confermare'}`,
                 html: createAdminNotificationTemplate(bookingData)
-            };
-
-            await transporter.sendMail(adminMailOptions);
+            });
             console.log('📧 Notifica admin inviata');
         }
 
@@ -1789,19 +1762,13 @@ app.post('/api/stripe-webhook', async (req, res) => {
 
             const meetingInfo = await createGoogleMeetEvent(bookingData);
 
-            if (transporter) {
+            if (resend) {
                 try {
-                    const customerMailOptions = {
-                        from: {
-                            name: 'Valentin Procida',
-                            address: process.env.EMAIL_USER
-                        },
+                    await sendEmail({
                         to: bookingData.customerEmail,
                         subject: '✅ Consulenza VFX Confermata - Valentin Procida',
                         html: createBookingConfirmationTemplate(bookingData)
-                    };
-
-                    await transporter.sendMail(customerMailOptions);
+                    });
                     console.log('📧 Email di conferma automatica inviata al cliente');
 
                     if (meetingInfo) {
@@ -1809,17 +1776,11 @@ app.post('/api/stripe-webhook', async (req, res) => {
                     }
 
                     if (process.env.ADMIN_EMAIL) {
-                        const adminMailOptions = {
-                            from: {
-                                name: 'Sistema Prenotazioni',
-                                address: process.env.EMAIL_USER
-                            },
+                        await sendEmail({
                             to: process.env.ADMIN_EMAIL,
                             subject: `🎯 Nuova Prenotazione: ${bookingData.customerName} - ${bookingData.appointmentDate || 'Data da confermare'}`,
                             html: createAdminNotificationTemplate(bookingData)
-                        };
-
-                        await transporter.sendMail(adminMailOptions);
+                        });
                         console.log('📧 Notifica admin automatica inviata');
                     }
                 } catch (emailError) {
@@ -1853,7 +1814,7 @@ app.post('/api/test-google-meet-email', async (req, res) => {
             return res.status(400).json({ error: 'Email richiesta per il test' });
         }
 
-        if (!transporter) {
+        if (!resend) {
             return res.status(500).json({ error: 'Servizio email non configurato' });
         }
 
@@ -2006,15 +1967,11 @@ async function startServer() {
         await initGoogleServices();
         generateInitialCodes();
 
-        // Verifica configurazione email
-        if (transporter) {
-            transporter.verify((error, success) => {
-                if (error) {
-                    console.error('❌ Errore configurazione email:', error.message);
-                } else {
-                    console.log('📧 Server email configurato correttamente');
-                }
-            });
+        // Verifica configurazione email Resend
+        if (resend) {
+            console.log('📧 Resend email configurato correttamente');
+        } else {
+            console.warn('⚠️ Resend non configurato - email disabilitate');
         }
 
         // Cleanup automatico codici scaduti ogni ora
@@ -2039,7 +1996,7 @@ async function startServer() {
             console.log(`✅ Server running on port ${PORT}`);
             console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log(`🔑 Stripe configured: ${!!process.env.STRIPE_SECRET_KEY}`);
-            console.log(`📧 Email configured: ${!!transporter}`);
+            console.log(`📧 Email configured: ${!!resend}`);
             console.log(`📊 Google Sheets configured: ${!!sheets}`);
             console.log(`📅 Google Calendar configured: ${!!calendar}`);
             console.log(`🎫 Codici sconto disponibili: ${Object.keys(discountCodes).length}`);
